@@ -1,0 +1,29 @@
+# Python cache/artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+.venv/
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+
+# Runtime blockchain data
+data/node1.json
+data/node2.json
+data/node3.json
+blockchain_data.json
+node1.json
+node2.json
+node3.json
+
+# Environment files
+.env
+.env.*
+
+
+node_modules/
