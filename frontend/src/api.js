@@ -40,6 +40,21 @@ export async function fetchChain(baseUrl = DEFAULT_BASE_URL) {
   return request(baseUrl, "/chain");
 }
 
+export async function fetchVoters(baseUrl = DEFAULT_BASE_URL) {
+  return request(baseUrl, "/voters");
+}
+
+export async function issueRegistrationCode(baseUrl, payload, adminToken = "") {
+  const headers = adminToken
+    ? { Authorization: `Bearer ${adminToken}`, "X-Admin-Token": adminToken }
+    : {};
+  return request(baseUrl, "/voters/codes/issue", {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload)
+  });
+}
+
 export async function castVote(baseUrl, voteInput) {
   return request(baseUrl, "/votes", {
     method: "POST",
@@ -47,15 +62,38 @@ export async function castVote(baseUrl, voteInput) {
   });
 }
 
-export async function registerVoter(baseUrl, voterInput) {
+export async function registerVoter(baseUrl, voterInput, adminToken = "") {
+  const headers = adminToken
+    ? { Authorization: `Bearer ${adminToken}`, "X-Admin-Token": adminToken }
+    : {};
   return request(baseUrl, "/voters/register", {
     method: "POST",
+    headers,
     body: JSON.stringify(voterInput)
   });
 }
 
-export async function mineVotes(baseUrl) {
-  return request(baseUrl, "/mine");
+export async function mineVotes(baseUrl, adminToken = "") {
+  const headers = adminToken
+    ? { Authorization: `Bearer ${adminToken}`, "X-Admin-Token": adminToken }
+    : {};
+  return request(baseUrl, "/mine", {
+    method: "GET",
+    headers
+  });
+}
+
+export async function mineCluster(baseUrl, limit = 100, difficulty = null, adminToken = "") {
+  const headers = adminToken
+    ? { Authorization: `Bearer ${adminToken}`, "X-Admin-Token": adminToken }
+    : {};
+  const qs = `?limit=${encodeURIComponent(limit)}${
+    difficulty !== null && difficulty !== undefined ? `&difficulty=${encodeURIComponent(difficulty)}` : ""
+  }`;
+  return request(baseUrl, `/mine/cluster${qs}`, {
+    method: "POST",
+    headers,
+  });
 }
 
 export async function fetchElectionResults(baseUrl, electionId) {
@@ -64,6 +102,34 @@ export async function fetchElectionResults(baseUrl, electionId) {
 
 export async function resolveConsensus(baseUrl) {
   return request(baseUrl, "/nodes/resolve");
+}
+
+export async function broadcastToNetwork(baseUrl, adminToken = "") {
+  const headers = adminToken
+    ? { Authorization: `Bearer ${adminToken}`, "X-Admin-Token": adminToken }
+    : {};
+  return request(baseUrl, "/broadcast", {
+    method: "POST",
+    headers
+  });
+}
+
+export async function createElection(baseUrl, electionId, adminToken = "") {
+  const headers = adminToken
+    ? { Authorization: `Bearer ${adminToken}`, "X-Admin-Token": adminToken }
+    : {};
+  return request(baseUrl, "/elections", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ election_id: electionId })
+  });
+}
+
+export async function adminLogin(baseUrl, username, password, expiresInMinutes = 60) {
+  return request(baseUrl, "/admin/login", {
+    method: "POST",
+    body: JSON.stringify({ username, password, expires_in_minutes: expiresInMinutes }),
+  });
 }
 
 export { DEFAULT_BASE_URL };

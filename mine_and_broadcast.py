@@ -29,7 +29,7 @@ def main() -> int:
     node = args.node.rstrip("/")
 
     try:
-        response = requests.get(f"{node}/mine", timeout=args.timeout)
+        response = requests.post(f"{node}/mine/cluster?limit=100", timeout=args.timeout)
     except requests.RequestException as error:
         print(f"Request failed: {error}", file=sys.stderr)
         return 1
@@ -42,15 +42,16 @@ def main() -> int:
     message = data.get("message", "")
     print(message)
 
-    if message == "No pending votes to mine":
+    if message == "No pending transactions to mine":
         return 0
 
-    print(f"index={data.get('index')}")
-    print(f"hash={data.get('hash')}")
-    print(f"nonce={data.get('nonce')}")
-    print(f"mining_time_seconds={data.get('mining_time_seconds')}")
+    local = data.get("local", {})
+    print(f"index={local.get('index') or data.get('index')}")
+    print(f"hash={local.get('hash') or data.get('hash')}")
+    print(f"nonce={local.get('nonce') or data.get('nonce')}")
+    print(f"mining_time_seconds={local.get('mining_time_seconds') or data.get('mining_time_seconds')}")
 
-    broadcast = data.get("broadcast", {})
+    broadcast = local.get("broadcast", data.get("broadcast", {}))
     print(
         "broadcast="
         f"accepted:{broadcast.get('accepted', 0)},"

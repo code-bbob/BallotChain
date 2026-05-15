@@ -3,9 +3,10 @@ services:
     build: .
     container_name: blockchain-node1
     environment:
-      DIFFICULTY: "3"
+      DIFFICULTY: "5"
       BLOCKCHAIN_DATA: "/data/node1.json"
       PORT: "8001"
+      NODE_LABEL: "node1"
       CORS_ALLOW_ORIGINS: "http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173"
       SELF_NODE_URL: "http://node1:8001"
       PEER_NODES: "http://node2:8002,http://node3:8003"
@@ -18,9 +19,10 @@ services:
     build: .
     container_name: blockchain-node2
     environment:
-      DIFFICULTY: "3"
+      DIFFICULTY: "5"
       BLOCKCHAIN_DATA: "/data/node2.json"
       PORT: "8002"
+      NODE_LABEL: "node2"
       CORS_ALLOW_ORIGINS: "http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173"
       SELF_NODE_URL: "http://node2:8002"
       PEER_NODES: "http://node1:8001,http://node3:8003"
@@ -33,9 +35,10 @@ services:
     build: .
     container_name: blockchain-node3
     environment:
-      DIFFICULTY: "3"
+      DIFFICULTY: "5"
       BLOCKCHAIN_DATA: "/data/node3.json"
       PORT: "8003"
+      NODE_LABEL: "node3"
       CORS_ALLOW_ORIGINS: "http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173"
       SELF_NODE_URL: "http://node3:8003"
       PEER_NODES: "http://node1:8001,http://node2:8002"

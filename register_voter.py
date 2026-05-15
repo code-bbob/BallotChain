@@ -31,6 +31,11 @@ def parse_args() -> argparse.Namespace:
         help="Admin token if node is configured with ADMIN_TOKEN",
     )
     parser.add_argument(
+        "--registration-code",
+        default="",
+        help="One-time registration code issued by the admin",
+    )
+    parser.add_argument(
         "--timeout",
         type=float,
         default=10,
@@ -77,6 +82,7 @@ def main() -> int:
     payload = {
         "voter_id": args.voter_id,
         "voter_public_key": public_key,
+        "registration_code": args.registration_code.strip(),
     }
 
     try:

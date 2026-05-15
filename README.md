@@ -109,11 +109,28 @@ docker compose up --build -d
 ```
 
 Docker services are preconfigured with `PEER_NODES`, so each node auto-registers the other two on startup.
+The Docker setup now uses `DIFFICULTY=5` so mining stays visible for longer during a demo.
 
 Check containers:
 
 ```bash
 docker compose ps
+```
+
+Follow logs for a specific node:
+
+```bash
+docker compose logs -f node1
+docker compose logs -f node2
+docker compose logs -f node3
+```
+
+You can also use the container names directly:
+
+```bash
+docker logs -f blockchain-node1
+docker logs -f blockchain-node2
+docker logs -f blockchain-node3
 ```
 
 Check node chains:
@@ -188,7 +205,9 @@ The legacy `add_transaction.py` script now delegates to the same vote helper for
 curl "http://127.0.0.1:8001/mine"
 ```
 
-Or use the helper script (this mines and triggers peer broadcast automatically via `/mine`):
+This now coordinates cluster mining: the node that receives the request starts mining locally and sends the same pending transactions to the other nodes at the same time.
+
+Or use the helper script:
 
 ```bash
 cd /home/bibhab/finalproject

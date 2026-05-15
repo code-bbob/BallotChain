@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import hashlib
+import secrets
 from time import perf_counter, time
 from typing import Any
 from urllib.parse import urlparse
@@ -16,6 +18,9 @@ class Blockchain:
     pending_transactions: list[dict[str, Any]] = field(default_factory=list)
     nodes: set[str] = field(default_factory=set)
     voter_registry: dict[str, str] = field(default_factory=dict)
+    registration_codes: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # maps voter_id -> set/list of election_ids the voter is registered for
+    voter_elections: dict[str, set[str]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.chain:
@@ -67,6 +72,11 @@ class Blockchain:
         if registered_public_key != voter_public_key:
             raise ValueError("voter_public_key does not match registered voter key")
 
+        # If voter has election-scoped registrations, ensure they're registered for this election
+        allowed = self.voter_elections.get(voter_id)
+        if allowed is not None and len(allowed) > 0 and election_id not in allowed:
+            raise ValueError("voter is not registered for this election")
+
         known_public_key = self._public_key_for_voter(voter_id)
         if known_public_key and known_public_key != voter_public_key:
             raise ValueError("voter_id is already bound to a different public key")
@@ -113,6 +123,130 @@ class Blockchain:
             raise ValueError("voter_id is already registered with a different public key")
 
         self.voter_registry[voter_id] = voter_public_key
+
+    def _registration_code_hash(self, registration_code: str) -> str:
+        return hashlib.sha256(registration_code.strip().encode("utf-8")).hexdigest()
+
+    def _cleanup_expired_registration_codes(self) -> None:
+        current_time = time()
+        expired_hashes = [
+            code_hash
+            for code_hash, entry in self.registration_codes.items()
+            if float(entry.get("expires_at", 0)) <= current_time
+        ]
+        for code_hash in expired_hashes:
+            self.registration_codes.pop(code_hash, None)
+
+    def issue_registration_code(self, voter_id: str, expires_in_minutes: int = 60) -> dict[str, Any]:
+        return self.issue_registration_code_for(voter_id, None, expires_in_minutes)
+
+
+    def issue_registration_code_for(self, voter_id: str, election_id: str | None = None, expires_in_minutes: int = 60) -> dict[str, Any]:
+        voter_id = voter_id.strip()
+        if not voter_id:
+            raise ValueError("voter_id is required")
+
+        self._cleanup_expired_registration_codes()
+
+        # If issuing a global code (no election) ensure voter not registered globally
+        if election_id is None and voter_id in self.voter_registry:
+            raise ValueError("voter is already registered")
+
+        # Prevent duplicate active codes for same voter+election
+        active_code_exists = any(
+            str(entry.get("voter_id", "")).strip() == voter_id
+            and (entry.get("election_id") or None) == (election_id or None)
+            for entry in self.registration_codes.values()
+        )
+        if active_code_exists:
+            raise ValueError("voter already has an active registration code for this election")
+
+        if expires_in_minutes < 1:
+            raise ValueError("expires_in_minutes must be at least 1")
+
+        registration_code = secrets.token_urlsafe(18)
+        code_hash = self._registration_code_hash(registration_code)
+        while code_hash in self.registration_codes:
+            registration_code = secrets.token_urlsafe(18)
+            code_hash = self._registration_code_hash(registration_code)
+
+        issued_at = time()
+        expires_at = issued_at + (expires_in_minutes * 60)
+        entry: dict[str, Any] = {
+            "voter_id": voter_id,
+            "issued_at": issued_at,
+            "expires_at": expires_at,
+        }
+        if election_id:
+            entry["election_id"] = str(election_id).strip()
+
+        self.registration_codes[code_hash] = entry
+
+        return {
+            "registration_code": registration_code,
+            "voter_id": voter_id,
+            "election_id": entry.get("election_id"),
+            "issued_at": issued_at,
+            "expires_at": expires_at,
+        }
+
+    def register_voter_with_code(
+        self,
+        voter_id: str,
+        voter_public_key: str,
+        registration_code: str,
+        election_id: str | None = None,
+    ) -> None:
+        voter_id = voter_id.strip()
+        voter_public_key = voter_public_key.strip()
+        registration_code = registration_code.strip()
+
+        if not registration_code:
+            raise ValueError("registration_code is required")
+
+        # allow existing global registration; election-scoped registration
+        # will be enforced later by public-key checks and voter_elections mapping
+
+        self._cleanup_expired_registration_codes()
+
+        code_hash = self._registration_code_hash(registration_code)
+
+        entry = self.registration_codes.get(code_hash)
+        if not entry:
+            raise ValueError("registration code is invalid or has already been used")
+
+        if str(entry.get("voter_id", "")).strip() != voter_id:
+            raise ValueError("registration code does not match this voter")
+
+        entry_election = str(entry.get("election_id", "")).strip() or None
+        # if voter provided an election_id during registration, ensure it matches the code's election
+        if election_id is not None:
+            provided_election = str(election_id).strip() or None
+            if entry_election != provided_election:
+                raise ValueError("registration code does not match the specified election")
+
+        if not is_valid_public_key(voter_public_key):
+            raise ValueError("voter_public_key is not a valid Ed25519 key")
+
+        existing_public_key = self.voter_registry.get(voter_id)
+        if existing_public_key and existing_public_key != voter_public_key:
+            raise ValueError("voter_id is already registered with a different public key")
+
+        # Bind public key globally
+        existing_public_key = self.voter_registry.get(voter_id)
+        if existing_public_key and existing_public_key != voter_public_key:
+            raise ValueError("voter_id is already registered with a different public key")
+
+        self.voter_registry[voter_id] = voter_public_key
+
+        # If code was election-scoped, record the election for this voter
+        if entry_election:
+            if voter_id not in self.voter_elections:
+                self.voter_elections[voter_id] = set()
+            self.voter_elections[voter_id].add(entry_election)
+
+        # consume code
+        self.registration_codes.pop(code_hash, None)
 
     def add_transaction(self, sender: str, receiver: str, amount: float) -> int:
         raise ValueError(
@@ -371,6 +505,9 @@ class Blockchain:
             "pending_transactions": self.pending_transactions,
             "nodes": sorted(self.nodes),
             "voter_registry": dict(sorted(self.voter_registry.items())),
+            "registration_codes": dict(self.registration_codes),
+            # store voter_elections as lists for JSON
+            "voter_elections": {k: sorted(list(v)) for k, v in self.voter_elections.items()},
         }
 
     @classmethod
@@ -403,6 +540,18 @@ class Blockchain:
         for voter_id, public_key in instance.voter_registry.items():
             if not is_valid_public_key(public_key):
                 raise ValueError(f"invalid voter key in registry for {voter_id}")
+
+        # load registration codes if present
+        raw_codes = dict(data.get("registration_codes", {}))
+        if raw_codes:
+            instance.registration_codes = raw_codes
+
+        # load voter_elections mapping
+        raw_elections = data.get("voter_elections", {})
+        if isinstance(raw_elections, dict):
+            for vid, elections in raw_elections.items():
+                if isinstance(elections, (list, tuple)):
+                    instance.voter_elections[str(vid).strip()] = set([str(e).strip() for e in elections if str(e).strip()])
 
         if not instance.is_chain_valid(instance.chain):
             raise ValueError("persisted chain is invalid")

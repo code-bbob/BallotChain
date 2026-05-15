@@ -23,26 +23,22 @@ function toUrlSafeId(value) {
   return value.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
-function canonicalVoteMessage(voterId, candidateId, electionId) {
+function canonicalVoteMessage(voter_id, candidate_id, election_id) {
   return JSON.stringify({
-    candidate_id: candidateId.trim(),
-    election_id: electionId.trim(),
-    voter_id: voterId.trim()
+    candidate_id: candidate_id.trim(),
+    election_id: election_id.trim(),
+    voter_id: voter_id.trim(),
   });
 }
 
 export function loadWallet() {
   const raw = localStorage.getItem(WALLET_STORAGE_KEY);
 
-  if (!raw) {
-    return null;
-  }
+  if (!raw) return null;
 
   try {
     const wallet = JSON.parse(raw);
-    if (!wallet?.voterId || !wallet?.publicKey || !wallet?.secretKey) {
-      return null;
-    }
+    if (!wallet?.voter_id || !wallet?.public_key || !wallet?.private_key) return null;
     return wallet;
   } catch {
     return null;
@@ -61,27 +57,21 @@ export function createWallet() {
   const seed = nacl.randomBytes(32);
   const keyPair = nacl.sign.keyPair.fromSeed(seed);
   const publicKeyBase64 = bytesToBase64(keyPair.publicKey);
-  const secretKeyBase64 = bytesToBase64(keyPair.secretKey);
-  const voterId = `wallet-${toUrlSafeId(publicKeyBase64).slice(0, 12)}`;
+  const privateKeyBase64 = bytesToBase64(keyPair.secretKey);
+  const voter_id = `wallet-${toUrlSafeId(publicKeyBase64).slice(0, 12)}`;
 
   return {
-    voterId,
-    publicKey: publicKeyBase64,
-    secretKey: secretKeyBase64,
-    createdAt: new Date().toISOString()
+    voter_id,
+    public_key: publicKeyBase64,
+    private_key: privateKeyBase64,
+    created_at: new Date().toISOString(),
   };
 }
 
-export function signVote(wallet, candidateId, electionId) {
-  if (!wallet) {
-    throw new Error("Wallet is required to sign a vote");
-  }
+export function signVote(voter_id, candidate_id, election_id, private_key_b64) {
+  if (!voter_id || !private_key_b64) throw new Error("Wallet and private key required to sign");
 
-  const message = canonicalVoteMessage(wallet.voterId, candidateId, electionId);
-  const signature = nacl.sign.detached(
-    new TextEncoder().encode(message),
-    base64ToBytes(wallet.secretKey)
-  );
-
+  const message = canonicalVoteMessage(voter_id, candidate_id, election_id);
+  const signature = nacl.sign.detached(new TextEncoder().encode(message), base64ToBytes(private_key_b64));
   return bytesToBase64(signature);
 }
