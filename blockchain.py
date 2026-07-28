@@ -8,7 +8,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from block import Block
-from crypto_utils import is_valid_public_key, verify_vote_signature
+from crypto_utils import verify_rsa_blind_vote_signature
 
 
 @dataclass
@@ -17,10 +17,13 @@ class Blockchain:
     chain: list[Block] = field(default_factory=list)
     pending_transactions: list[dict[str, Any]] = field(default_factory=list)
     nodes: set[str] = field(default_factory=set)
-    voter_registry: dict[str, str] = field(default_factory=dict)
+    # One-time invitation codes issued by admin
     registration_codes: dict[str, dict[str, Any]] = field(default_factory=dict)
-    # maps voter_id -> set/list of election_ids the voter is registered for
-    voter_elections: dict[str, set[str]] = field(default_factory=dict)
+    # Anti-replay: nonces from already-submitted votes
+    used_nonces: set[str] = field(default_factory=set)
+    # Admin RSA public key for verifying blind-signed votes
+    admin_n: int = 0
+    admin_e: int = 0
 
     def __post_init__(self) -> None:
         if not self.chain:
@@ -30,7 +33,7 @@ class Blockchain:
     def _create_genesis_block(self) -> Block:
         genesis = Block(
             index=0,
-            timestamp=time(),
+            timestamp=0.0,
             transactions=[],
             previous_hash="0",
         )
@@ -43,86 +46,55 @@ class Blockchain:
 
     def add_vote(
         self,
-        voter_id: str,
         candidate_id: str,
         election_id: str,
-        voter_public_key: str,
+        nonce: str,
         signature: str,
     ) -> int:
-        voter_id = voter_id.strip()
         candidate_id = candidate_id.strip()
         election_id = election_id.strip()
-        voter_public_key = voter_public_key.strip()
+        nonce = nonce.strip()
         signature = signature.strip()
 
-        if not voter_id:
-            raise ValueError("voter_id is required")
         if not candidate_id:
             raise ValueError("candidate_id is required")
         if not election_id:
             raise ValueError("election_id is required")
-        if not voter_public_key:
-            raise ValueError("voter_public_key is required")
+        if not nonce:
+            raise ValueError("nonce is required")
         if not signature:
             raise ValueError("signature is required")
+        if self.admin_n <= 0 or self.admin_e <= 0:
+            raise ValueError("admin public key not configured on this node")
 
-        registered_public_key = self.voter_registry.get(voter_id)
-        if not registered_public_key:
-            raise ValueError("voter is not registered")
-        if registered_public_key != voter_public_key:
-            raise ValueError("voter_public_key does not match registered voter key")
+        if self._is_nonce_used(nonce):
+            raise ValueError("vote nonce has already been used")
 
-        # If voter has election-scoped registrations, ensure they're registered for this election
-        allowed = self.voter_elections.get(voter_id)
-        if allowed is not None and len(allowed) > 0 and election_id not in allowed:
-            raise ValueError("voter is not registered for this election")
-
-        known_public_key = self._public_key_for_voter(voter_id)
-        if known_public_key and known_public_key != voter_public_key:
-            raise ValueError("voter_id is already bound to a different public key")
-
-        if not verify_vote_signature(
-            voter_id,
+        if not verify_rsa_blind_vote_signature(
             candidate_id,
             election_id,
-            voter_public_key,
+            nonce,
             signature,
+            self.admin_n,
+            self.admin_e,
         ):
             raise ValueError("invalid vote signature")
 
-        if self._has_vote(voter_id, election_id, self.pending_transactions):
-            raise ValueError("voter has already submitted a pending vote for this election")
-        if self.has_voted(voter_id, election_id):
-            raise ValueError("voter has already voted in this election")
+        if self._has_nonce(nonce, self.pending_transactions):
+            raise ValueError("vote with this nonce is already pending")
+        if self.has_voted_nonce(nonce):
+            raise ValueError("vote with this nonce already exists in the chain")
 
         self.pending_transactions.append(
             {
-                "voter_id": voter_id,
                 "candidate_id": candidate_id,
                 "election_id": election_id,
-                "voter_public_key": voter_public_key,
+                "nonce": nonce,
                 "signature": signature,
                 "timestamp": time(),
             }
         )
         return self.latest_block.index + 1
-
-    def register_voter(self, voter_id: str, voter_public_key: str) -> None:
-        voter_id = voter_id.strip()
-        voter_public_key = voter_public_key.strip()
-
-        if not voter_id:
-            raise ValueError("voter_id is required")
-        if not voter_public_key:
-            raise ValueError("voter_public_key is required")
-        if not is_valid_public_key(voter_public_key):
-            raise ValueError("voter_public_key is not a valid Ed25519 key")
-
-        existing_public_key = self.voter_registry.get(voter_id)
-        if existing_public_key and existing_public_key != voter_public_key:
-            raise ValueError("voter_id is already registered with a different public key")
-
-        self.voter_registry[voter_id] = voter_public_key
 
     def _registration_code_hash(self, registration_code: str) -> str:
         return hashlib.sha256(registration_code.strip().encode("utf-8")).hexdigest()
@@ -137,29 +109,8 @@ class Blockchain:
         for code_hash in expired_hashes:
             self.registration_codes.pop(code_hash, None)
 
-    def issue_registration_code(self, voter_id: str, expires_in_minutes: int = 60) -> dict[str, Any]:
-        return self.issue_registration_code_for(voter_id, None, expires_in_minutes)
-
-
-    def issue_registration_code_for(self, voter_id: str, election_id: str | None = None, expires_in_minutes: int = 60) -> dict[str, Any]:
-        voter_id = voter_id.strip()
-        if not voter_id:
-            raise ValueError("voter_id is required")
-
+    def issue_invitation_code_for(self, election_id: str | None = None, expires_in_minutes: int = 60) -> dict[str, Any]:
         self._cleanup_expired_registration_codes()
-
-        # If issuing a global code (no election) ensure voter not registered globally
-        if election_id is None and voter_id in self.voter_registry:
-            raise ValueError("voter is already registered")
-
-        # Prevent duplicate active codes for same voter+election
-        active_code_exists = any(
-            str(entry.get("voter_id", "")).strip() == voter_id
-            and (entry.get("election_id") or None) == (election_id or None)
-            for entry in self.registration_codes.values()
-        )
-        if active_code_exists:
-            raise ValueError("voter already has an active registration code for this election")
 
         if expires_in_minutes < 1:
             raise ValueError("expires_in_minutes must be at least 1")
@@ -173,7 +124,6 @@ class Blockchain:
         issued_at = time()
         expires_at = issued_at + (expires_in_minutes * 60)
         entry: dict[str, Any] = {
-            "voter_id": voter_id,
             "issued_at": issued_at,
             "expires_at": expires_at,
         }
@@ -184,149 +134,87 @@ class Blockchain:
 
         return {
             "registration_code": registration_code,
-            "voter_id": voter_id,
             "election_id": entry.get("election_id"),
             "issued_at": issued_at,
             "expires_at": expires_at,
         }
 
-    def register_voter_with_code(
-        self,
-        voter_id: str,
-        voter_public_key: str,
-        registration_code: str,
-        election_id: str | None = None,
-    ) -> None:
-        voter_id = voter_id.strip()
-        voter_public_key = voter_public_key.strip()
+    def consume_invitation_code(self, registration_code: str, election_id: str | None = None) -> dict[str, Any]:
         registration_code = registration_code.strip()
-
         if not registration_code:
             raise ValueError("registration_code is required")
-
-        # allow existing global registration; election-scoped registration
-        # will be enforced later by public-key checks and voter_elections mapping
 
         self._cleanup_expired_registration_codes()
 
         code_hash = self._registration_code_hash(registration_code)
-
         entry = self.registration_codes.get(code_hash)
         if not entry:
-            raise ValueError("registration code is invalid or has already been used")
-
-        if str(entry.get("voter_id", "")).strip() != voter_id:
-            raise ValueError("registration code does not match this voter")
+            raise ValueError("invitation code is invalid or has already been used")
 
         entry_election = str(entry.get("election_id", "")).strip() or None
-        # if voter provided an election_id during registration, ensure it matches the code's election
         if election_id is not None:
             provided_election = str(election_id).strip() or None
             if entry_election != provided_election:
-                raise ValueError("registration code does not match the specified election")
+                raise ValueError("invitation code does not match the specified election")
 
-        if not is_valid_public_key(voter_public_key):
-            raise ValueError("voter_public_key is not a valid Ed25519 key")
-
-        existing_public_key = self.voter_registry.get(voter_id)
-        if existing_public_key and existing_public_key != voter_public_key:
-            raise ValueError("voter_id is already registered with a different public key")
-
-        # Bind public key globally
-        existing_public_key = self.voter_registry.get(voter_id)
-        if existing_public_key and existing_public_key != voter_public_key:
-            raise ValueError("voter_id is already registered with a different public key")
-
-        self.voter_registry[voter_id] = voter_public_key
-
-        # If code was election-scoped, record the election for this voter
-        if entry_election:
-            if voter_id not in self.voter_elections:
-                self.voter_elections[voter_id] = set()
-            self.voter_elections[voter_id].add(entry_election)
-
-        # consume code
         self.registration_codes.pop(code_hash, None)
+        return dict(entry)
 
-    def add_transaction(self, sender: str, receiver: str, amount: float) -> int:
-        raise ValueError(
-            "Legacy transaction API is disabled. Use signed votes via add_vote().",
-        )
+    def _is_nonce_used(self, nonce: str) -> bool:
+        return nonce.strip() in self.used_nonces
 
-    def _public_key_for_voter(self, voter_id: str) -> str | None:
-        for vote in self.pending_transactions:
-            if not isinstance(vote, dict):
-                continue
-            if str(vote.get("voter_id", "")).strip() == voter_id:
-                public_key = str(vote.get("voter_public_key", "")).strip()
-                if public_key:
-                    return public_key
+    def _mark_nonce_used(self, nonce: str) -> None:
+        self.used_nonces.add(nonce.strip())
 
-        for block in self.chain:
-            for vote in block.transactions:
-                if not isinstance(vote, dict):
-                    continue
-                if str(vote.get("voter_id", "")).strip() == voter_id:
-                    public_key = str(vote.get("voter_public_key", "")).strip()
-                    if public_key:
-                        return public_key
-
-        return None
-
-    def _validate_vote_record(self, vote: dict[str, Any]) -> tuple[str, str, str, str]:
-        voter_id = str(vote.get("voter_id", "")).strip()
-        candidate_id = str(vote.get("candidate_id", "")).strip()
-        election_id = str(vote.get("election_id", "")).strip()
-        voter_public_key = str(vote.get("voter_public_key", "")).strip()
-        signature = str(vote.get("signature", "")).strip()
-
-        if not voter_id or not candidate_id or not election_id:
-            raise ValueError("vote contains required empty fields")
-        if not voter_public_key:
-            raise ValueError("vote is missing voter_public_key")
-        if not signature:
-            raise ValueError("vote is missing signature")
-
-        if not verify_vote_signature(
-            voter_id,
-            candidate_id,
-            election_id,
-            voter_public_key,
-            signature,
-        ):
-            raise ValueError("vote contains invalid signature")
-
-        return voter_id, candidate_id, election_id, voter_public_key
-
-    def _has_vote(
+    def _has_nonce(
         self,
-        voter_id: str,
-        election_id: str,
+        nonce: str,
         votes: list[dict[str, Any]] | None = None,
     ) -> bool:
         vote_list = votes if votes is not None else self.pending_transactions
+        nonce = nonce.strip()
 
         for vote in vote_list:
-            if (
-                str(vote.get("voter_id", "")).strip() == voter_id
-                and str(vote.get("election_id", "")).strip() == election_id
-            ):
+            if str(vote.get("nonce", "")).strip() == nonce:
                 return True
 
         return False
 
-    def has_voted(self, voter_id: str, election_id: str) -> bool:
+    def has_voted_nonce(self, nonce: str) -> bool:
+        nonce = nonce.strip()
         for block in self.chain:
             for vote in block.transactions:
                 if not isinstance(vote, dict):
                     continue
-                if (
-                    str(vote.get("voter_id", "")).strip() == voter_id
-                    and str(vote.get("election_id", "")).strip() == election_id
-                ):
+                if str(vote.get("nonce", "")).strip() == nonce:
                     return True
 
         return False
+
+    def _validate_vote_record(self, vote: dict[str, Any]) -> tuple[str, str, str]:
+        candidate_id = str(vote.get("candidate_id", "")).strip()
+        election_id = str(vote.get("election_id", "")).strip()
+        nonce = str(vote.get("nonce", "")).strip()
+        signature = str(vote.get("signature", "")).strip()
+
+        if not candidate_id or not election_id:
+            raise ValueError("vote contains required empty fields")
+        if not nonce:
+            raise ValueError("vote is missing nonce")
+        if not signature:
+            raise ValueError("vote is missing signature")
+
+        if not verify_rsa_blind_vote_signature(
+            candidate_id,
+            election_id,
+            nonce,
+            signature,
+            self.admin_n,
+            self.admin_e,
+        ):
+            raise ValueError("vote contains invalid signature")
+
+        return candidate_id, election_id, nonce
 
     def proof_of_work(self, block: Block, difficulty: int | None = None) -> float:
         applied_difficulty = difficulty if difficulty is not None else self.difficulty
@@ -347,31 +235,27 @@ class Blockchain:
         if not block.hash.startswith("0" * self.difficulty):
             raise ValueError("invalid proof-of-work")
 
-        seen_votes_in_block: set[tuple[str, str]] = set()
+        seen_nonces_in_block: set[str] = set()
         for vote in block.transactions:
             if not isinstance(vote, dict):
                 raise ValueError("block contains malformed vote")
 
-            voter_id, _, election_id, voter_public_key = self._validate_vote_record(vote)
-            vote_key = (voter_id, election_id)
+            _, _, nonce = self._validate_vote_record(vote)
 
-            registered_public_key = self.voter_registry.get(voter_id)
-            if not registered_public_key:
-                raise ValueError("block contains vote for unregistered voter")
-            if registered_public_key != voter_public_key:
-                raise ValueError("block contains vote with key not matching voter registry")
+            if nonce in seen_nonces_in_block:
+                raise ValueError("block contains duplicate nonce")
 
-            if vote_key in seen_votes_in_block:
-                raise ValueError("block contains duplicate vote by same voter in election")
+            if self.has_voted_nonce(nonce):
+                raise ValueError("block contains nonce already present in chain")
 
-            known_public_key = self._public_key_for_voter(voter_id)
-            if known_public_key and known_public_key != voter_public_key:
-                raise ValueError("block contains voter with mismatched public key")
+            seen_nonces_in_block.add(nonce)
 
-            if self.has_voted(voter_id, election_id):
-                raise ValueError("block contains vote already present in chain")
-
-            seen_votes_in_block.add(vote_key)
+        # Mark all nonces as used
+        for vote in block.transactions:
+            if isinstance(vote, dict):
+                nonce = str(vote.get("nonce", "")).strip()
+                if nonce:
+                    self._mark_nonce_used(nonce)
 
         self.chain.append(block)
 
@@ -385,7 +269,6 @@ class Blockchain:
             transactions=self.pending_transactions.copy(),
             previous_hash=self.latest_block.hash,
         )
-        #naya block create hanxa, ani proof of work apply garda hash calculate garxa, ani block ma hash set garxa, ani block add garxa, ani pending transactions clear garxa
 
         mining_time = self.proof_of_work(block)
         self.add_block(block)
@@ -418,8 +301,7 @@ class Blockchain:
         if genesis.previous_hash != "0":
             return False
 
-        seen_votes_chain: set[tuple[str, str]] = set()
-        voter_key_map: dict[str, str] = dict(self.voter_registry)
+        seen_nonces: set[str] = set()
 
         for index in range(1, len(chain_to_check)):
             current = chain_to_check[index]
@@ -434,37 +316,25 @@ class Blockchain:
             if not current.hash.startswith("0" * self.difficulty):
                 return False
 
-            seen_votes_in_block: set[tuple[str, str]] = set()
+            seen_nonces_in_block: set[str] = set()
 
             for vote in current.transactions:
                 if not isinstance(vote, dict):
                     return False
 
                 try:
-                    voter_id, _, election_id, voter_public_key = self._validate_vote_record(vote)
+                    _, _, nonce = self._validate_vote_record(vote)
                 except ValueError:
                     return False
 
-                vote_key = (voter_id, election_id)
-
-                if vote_key in seen_votes_in_block:
+                if nonce in seen_nonces_in_block:
                     return False
 
-                if vote_key in seen_votes_chain:
+                if nonce in seen_nonces:
                     return False
 
-                registered_public_key = self.voter_registry.get(voter_id)
-                if not registered_public_key:
-                    return False
-                if registered_public_key != voter_public_key:
-                    return False
-
-                stored_public_key = voter_key_map.get(voter_id)
-                if stored_public_key != voter_public_key:
-                    return False
-                voter_key_map[voter_id] = voter_public_key
-                seen_votes_in_block.add(vote_key)
-                seen_votes_chain.add(vote_key)
+                seen_nonces_in_block.add(nonce)
+                seen_nonces.add(nonce)
 
         return True
 
@@ -504,10 +374,10 @@ class Blockchain:
             "chain": [block.to_dict() for block in self.chain],
             "pending_transactions": self.pending_transactions,
             "nodes": sorted(self.nodes),
-            "voter_registry": dict(sorted(self.voter_registry.items())),
             "registration_codes": dict(self.registration_codes),
-            # store voter_elections as lists for JSON
-            "voter_elections": {k: sorted(list(v)) for k, v in self.voter_elections.items()},
+            "used_nonces": sorted(list(self.used_nonces)),
+            "admin_n": self.admin_n,
+            "admin_e": self.admin_e,
         }
 
     @classmethod
@@ -520,38 +390,17 @@ class Blockchain:
             chain=parsed_chain,
             pending_transactions=list(data.get("pending_transactions", [])),
             nodes=set(data.get("nodes", [])),
-            voter_registry={
-                str(voter_id).strip(): str(public_key).strip()
-                for voter_id, public_key in dict(data.get("voter_registry", {})).items()
-                if str(voter_id).strip() and str(public_key).strip()
-            },
+            admin_n=int(data.get("admin_n", 0)),
+            admin_e=int(data.get("admin_e", 0)),
         )
 
-        if not instance.voter_registry:
-            for block in instance.chain:
-                for vote in block.transactions:
-                    if not isinstance(vote, dict):
-                        continue
-                    voter_id = str(vote.get("voter_id", "")).strip()
-                    voter_public_key = str(vote.get("voter_public_key", "")).strip()
-                    if voter_id and voter_public_key:
-                        instance.voter_registry[voter_id] = voter_public_key
+        raw_used = data.get("used_nonces", [])
+        if isinstance(raw_used, (list, tuple, set)):
+            instance.used_nonces = {str(item).strip() for item in raw_used if str(item).strip()}
 
-        for voter_id, public_key in instance.voter_registry.items():
-            if not is_valid_public_key(public_key):
-                raise ValueError(f"invalid voter key in registry for {voter_id}")
-
-        # load registration codes if present
         raw_codes = dict(data.get("registration_codes", {}))
         if raw_codes:
             instance.registration_codes = raw_codes
-
-        # load voter_elections mapping
-        raw_elections = data.get("voter_elections", {})
-        if isinstance(raw_elections, dict):
-            for vid, elections in raw_elections.items():
-                if isinstance(elections, (list, tuple)):
-                    instance.voter_elections[str(vid).strip()] = set([str(e).strip() for e in elections if str(e).strip()])
 
         if not instance.is_chain_valid(instance.chain):
             raise ValueError("persisted chain is invalid")

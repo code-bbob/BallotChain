@@ -4,240 +4,17 @@ import {
   DEFAULT_BASE_URL,
   fetchChain,
   fetchElectionResults,
-  registerVoter,
   mineCluster,
+  fetchBlindPublicKey,
+  requestBlindSignature,
 } from "./api";
-import { clearWallet, createWallet, loadWallet, saveWallet, signVote } from "./wallet";
-
-function StatCard({ label, value, subtext }) {
-  return (
-    <div className="stat-card">
-      <p className="stat-label">{label}</p>
-      <p className="stat-value">{value}</p>
-      {subtext ? <p className="stat-subtext">{subtext}</p> : null}
-    </div>
-  );
-}
-
-function WalletSection({ wallet, onCreateWallet, onClearWallet }) {
-  if (!wallet) {
-    return (
-      <div className="panel">
-        <h3>Create Your Wallet</h3>
-        <p className="muted">Generate a new wallet to sign and cast votes.</p>
-        <button onClick={onCreateWallet}>Generate New Wallet</button>
-        <div className="wallet-card">
-          <p className="notice">
-            Your wallet is stored locally in your browser. Keep your private key secret!
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="panel">
-      <h3>Your Wallet</h3>
-      <div className="wallet-card">
-        <p className="wallet-label">Voter ID</p>
-        <div className="wallet-key-block">
-          <code style={{ wordBreak: "break-all" }}>{wallet.voter_id}</code>
-        </div>
-      </div>
-
-      <div className="wallet-card">
-        <p className="wallet-label">Public Key (for registration)</p>
-        <div className="wallet-key-block">
-          <code style={{ wordBreak: "break-all", fontSize: "0.75rem" }}>
-            {wallet.public_key}
-          </code>
-        </div>
-      </div>
-
-      <div className="wallet-card">
-        <p className="wallet-label">Private Key (KEEP SECRET!)</p>
-        <div className="wallet-key-block" style={{ background: "#fef2f2", borderColor: "#fecaca" }}>
-          <code style={{ wordBreak: "break-all", fontSize: "0.75rem", color: "#991b1b" }}>
-            {wallet.private_key}
-          </code>
-        </div>
-      </div>
-
-      <button onClick={onClearWallet} className="ghost" style={{ marginTop: "0.75rem" }}>
-        Clear Wallet
-      </button>
-    </div>
-  );
-}
-
-function RegistrationSection({ wallet, baseUrl, onRegistered }) {
-  const [isRegistered, setIsRegistered] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
-  const [registrationCode, setRegistrationCode] = useState("");
-  const [registrationElectionId, setRegistrationElectionId] = useState("student-union-2026");
-
-  const handleRegister = async () => {
-    if (!wallet) {
-      setError("Create a wallet first");
-      return;
-    }
-
-    if (!registrationCode.trim()) {
-      setError("Enter the registration code from the admin");
-      return;
-    }
-
-    try {
-      setLoading(true);
-      setMessage("");
-      setError("");
-      await registerVoter(baseUrl, {
-        voter_id: wallet.voter_id,
-        voter_public_key: wallet.public_key,
-        registration_code: registrationCode.trim(),
-        election_id: registrationElectionId?.trim() || undefined,
-      });
-      setMessage("✓ Registered successfully!");
-      setIsRegistered(true);
-      setRegistrationCode("");
-      onRegistered();
-    } catch (err) {
-      setError(`Registration failed: ${err.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="panel">
-      <h3>Voter Registration</h3>
-      <p className="muted">Use the one-time code issued by the admin to bind this wallet to your voter record.</p>
-      {isRegistered || wallet?.registered ? (
-        <div className="banner banner-success">✓ Your wallet is registered and ready to vote.</div>
-      ) : (
-        <div className="form">
-          <label>
-            Registration Code
-            <input
-              type="text"
-              value={registrationCode}
-              onChange={(e) => setRegistrationCode(e.target.value)}
-              placeholder="Enter one-time code"
-              disabled={!wallet || loading}
-            />
-          </label>
-          <label>
-            Election ID
-            <input
-              type="text"
-              value={registrationElectionId}
-              onChange={(e) => setRegistrationElectionId(e.target.value)}
-              placeholder="student-union-2026"
-              disabled={!wallet || loading}
-            />
-          </label>
-          <button onClick={handleRegister} disabled={!wallet || loading}>
-            {loading ? "Registering..." : "Register This Wallet"}
-          </button>
-          {message && <div className="banner banner-success" style={{ marginTop: "0.75rem" }}>{message}</div>}
-          {error && <div className="banner banner-error" style={{ marginTop: "0.75rem" }}>{error}</div>}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function VotingSection({ wallet, baseUrl, isRegistered }) {
-  const [electionId, setElectionId] = useState("student-union-2026");
-  const [candidateId, setCandidateId] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
-
-  const handleVote = async (e) => {
-    e.preventDefault();
-
-    if (!wallet || !isRegistered) {
-      setError("Create and register wallet first");
-      return;
-    }
-
-    if (!candidateId.trim()) {
-      setError("Enter a candidate name");
-      return;
-    }
-
-    try {
-      setLoading(true);
-      setMessage("");
-      setError("");
-
-      const signature = signVote(
-        wallet.voter_id,
-        candidateId,
-        electionId,
-        wallet.private_key
-      );
-
-      await castVote(baseUrl, {
-        voter_id: wallet.voter_id,
-        candidate_id: candidateId,
-        election_id: electionId,
-        voter_public_key: wallet.public_key,
-        signature: signature,
-      });
-
-      setMessage(`✓ Vote for ${candidateId} in ${electionId} submitted!`);
-      setCandidateId("");
-    } catch (err) {
-      setError(`Vote submission failed: ${err.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="panel">
-      <h3>Cast Your Vote</h3>
-      <form onSubmit={handleVote} className="form">
-        <label>
-          Election ID
-          <input
-            type="text"
-            value={electionId}
-            onChange={(e) => setElectionId(e.target.value)}
-            placeholder="student-union-2026"
-            disabled={!isRegistered}
-          />
-        </label>
-
-        <label>
-          Candidate Name
-          <input
-            type="text"
-            value={candidateId}
-            onChange={(e) => setCandidateId(e.target.value)}
-            placeholder="e.g., Alice"
-            disabled={!isRegistered}
-          />
-        </label>
-
-        <button type="submit" disabled={!isRegistered || loading}>
-          {loading ? "Submitting..." : "Submit Vote"}
-        </button>
-      </form>
-
-      {message && <div className="banner banner-success">{message}</div>}
-      {error && <div className="banner banner-error">{error}</div>}
-
-      {!isRegistered && (
-        <div className="notice">Register your wallet first before voting.</div>
-      )}
-    </div>
-  );
-}
+import {
+  createBlindVoteMessage,
+  createBlindVoteRequest,
+  unblindVoteSignature,
+  verifyBlindVoteSignature,
+  parseNonceFromVoteMessage,
+} from "./wallet";
 
 function ResultsSection({ baseUrl }) {
   const [electionId, setElectionId] = useState("student-union-2026");
@@ -305,31 +82,177 @@ function ResultsSection({ baseUrl }) {
   );
 }
 
-export default function VoterView() {
-  const [baseUrl, setBaseUrl] = useState(DEFAULT_BASE_URL);
-  const [wallet, setWallet] = useState(() => loadWallet());
-  const [chainData, setChainData] = useState(null);
-  const [isRegistered, setIsRegistered] = useState(false);
-  const [mining, setMining] = useState(false);
-  const [miningInfo, setMiningInfo] = useState(null);
+function BlindVoteSection({ baseUrl }) {
+  const [electionId, setElectionId] = useState("student-union-2026");
+  const [candidateId, setCandidateId] = useState("");
+  const [registrationCode, setRegistrationCode] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [blindPublicKey, setBlindPublicKey] = useState(null);
+  const [keyStatus, setKeyStatus] = useState("");
 
-  const handleCreateWallet = () => {
-    const newWallet = createWallet();
-    saveWallet(newWallet);
-    setWallet(newWallet);
-  };
+  useEffect(() => {
+    let cancelled = false;
 
-  const handleClearWallet = () => {
-    if (confirm("Are you sure? This will delete your local wallet.")) {
-      clearWallet();
-      setWallet(null);
-      setIsRegistered(false);
+    const loadBlindKey = async () => {
+      try {
+        setKeyStatus("Fetching blind-sign public key...");
+        const key = await fetchBlindPublicKey(baseUrl);
+        if (!cancelled) {
+          setBlindPublicKey(key);
+          setKeyStatus("");
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setBlindPublicKey(null);
+          setKeyStatus(`Could not fetch blind-sign key: ${err.message}`);
+        }
+      }
+    };
+
+    loadBlindKey();
+    return () => {
+      cancelled = true;
+    };
+  }, [baseUrl]);
+
+  const handleBlindVote = async (e) => {
+    e.preventDefault();
+
+    if (!candidateId.trim()) {
+      setError("Enter a candidate name");
+      return;
+    }
+
+    if (!electionId.trim()) {
+      setError("Enter an election ID");
+      return;
+    }
+
+    if (!registrationCode.trim()) {
+      setError("Enter your registration invitation code from the admin");
+      return;
+    }
+
+    if (!blindPublicKey?.n || !blindPublicKey?.e) {
+      setError("Blind-sign key unavailable from node");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setMessage("");
+      setError("");
+
+      // Step 1: Create blind vote message with random nonce
+      const voteMessage = createBlindVoteMessage(candidateId, electionId);
+      const nonce = parseNonceFromVoteMessage(voteMessage);
+
+      // Step 2: Blind the vote hash
+      const blindRequest = await createBlindVoteRequest(voteMessage, blindPublicKey);
+
+      // Step 3: Request admin blind signature
+      const signResponse = await requestBlindSignature(baseUrl, {
+        registration_code: registrationCode.trim(),
+        election_id: electionId.trim() || undefined,
+        blinded_hash: `0x${blindRequest.blinded_hash_hex}`,
+      });
+
+      // Step 4: Unblind the signature
+      const unblindedSignature = unblindVoteSignature(
+        signResponse.blind_signature,
+        blindRequest.r_hex,
+        blindPublicKey
+      );
+
+      // Step 5: Verify locally (optional — catches tampering early)
+      const isValid = await verifyBlindVoteSignature(
+        voteMessage,
+        unblindedSignature,
+        blindPublicKey
+      );
+
+      if (!isValid) {
+        throw new Error("Blind signature verification failed locally");
+      }
+
+      // Step 6: Submit anonymous vote
+      await castVote(baseUrl, {
+        candidate_id: candidateId.trim(),
+        election_id: electionId.trim(),
+        nonce,
+        signature: `0x${unblindedSignature}`,
+      });
+
+      setMessage(`✓ Anonymous vote for ${candidateId} in ${electionId} submitted!`);
+      setCandidateId("");
+      setRegistrationCode("");
+    } catch (err) {
+      setError(`Vote submission failed: ${err.message}`);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleRegistered = () => {
-    setIsRegistered(true);
-  };
+  return (
+    <div className="panel">
+      <h3>Cast Your Anonymous Vote</h3>
+      <p className="muted">
+        Your vote is blinded before sending to the admin, then unblinded and submitted
+        anonymously. No identity is attached to the on-chain vote.
+      </p>
+
+      {keyStatus && <div className="notice">{keyStatus}</div>}
+
+      <form onSubmit={handleBlindVote} className="form">
+        <label>
+          Registration Invitation
+          <input
+            type="text"
+            value={registrationCode}
+            onChange={(e) => setRegistrationCode(e.target.value)}
+            placeholder="Paste invitation from admin"
+            disabled={loading}
+          />
+        </label>
+        <label>
+          Election ID
+          <input
+            type="text"
+            value={electionId}
+            onChange={(e) => setElectionId(e.target.value)}
+            placeholder="student-union-2026"
+            disabled={loading}
+          />
+        </label>
+        <label>
+          Candidate Name
+          <input
+            type="text"
+            value={candidateId}
+            onChange={(e) => setCandidateId(e.target.value)}
+            placeholder="e.g., Alice"
+            disabled={loading}
+          />
+        </label>
+
+        <button type="submit" disabled={loading || !blindPublicKey}>
+          {loading ? "Submitting..." : "Submit Anonymous Vote"}
+        </button>
+      </form>
+
+      {message && <div className="banner banner-success">{message}</div>}
+      {error && <div className="banner banner-error">{error}</div>}
+    </div>
+  );
+}
+
+export default function VoterView() {
+  const [baseUrl, setBaseUrl] = useState(DEFAULT_BASE_URL);
+  const [chainData, setChainData] = useState(null);
+  const [mining, setMining] = useState(false);
+  const [miningInfo, setMiningInfo] = useState(null);
 
   useEffect(() => {
     const interval = setInterval(async () => {
@@ -344,13 +267,6 @@ export default function VoterView() {
     return () => clearInterval(interval);
   }, [baseUrl]);
 
-  useEffect(() => {
-    return () => {
-      // cleanup if unmounting while mining
-      setMining(false);
-    };
-  }, []);
-
   const handleClusterMine = async () => {
     if (mining) return;
     const prevLength = chainData?.chain?.length || 0;
@@ -362,7 +278,6 @@ export default function VoterView() {
       const res = await mineCluster(baseUrl, 100);
       setMiningInfo({ status: "mining", response: res });
 
-      // poll for chain change or pending txs decrease
       const start = Date.now();
       const pollId = setInterval(async () => {
         try {
@@ -390,7 +305,7 @@ export default function VoterView() {
           <p className="eyebrow eyebrow-dark">Voting</p>
           <h2>Cast Your Vote</h2>
           <p className="muted">
-            Create a wallet, register, and submit cryptographically signed votes.
+            Blind-sign anonymous voting. No wallet or identity required.
           </p>
         </div>
 
@@ -440,30 +355,16 @@ export default function VoterView() {
         <div className="topbar">
           <div>
             <h1>Voting Console</h1>
-            <p className="subtitle">Ed25519 signed, verifiable voting</p>
+            <p className="subtitle">Blind-signature anonymous voting</p>
           </div>
         </div>
 
-        <WalletSection
-          wallet={wallet}
-          onCreateWallet={handleCreateWallet}
-          onClearWallet={handleClearWallet}
-        />
+        <BlindVoteSection baseUrl={baseUrl} />
 
-        {wallet && (
-          <>
-            <RegistrationSection
-              wallet={wallet}
-              baseUrl={baseUrl}
-              onRegistered={handleRegistered}
-            />
-
-            <div className="view-grid">
-              <VotingSection wallet={wallet} baseUrl={baseUrl} isRegistered={isRegistered} />
-              <ResultsSection baseUrl={baseUrl} />
-            </div>
-          </>
-        )}
+        <div className="view-grid">
+          <div />
+          <ResultsSection baseUrl={baseUrl} />
+        </div>
       </div>
     </div>
   );

@@ -62,14 +62,14 @@ export async function castVote(baseUrl, voteInput) {
   });
 }
 
-export async function registerVoter(baseUrl, voterInput, adminToken = "") {
-  const headers = adminToken
-    ? { Authorization: `Bearer ${adminToken}`, "X-Admin-Token": adminToken }
-    : {};
-  return request(baseUrl, "/voters/register", {
+export async function fetchBlindPublicKey(baseUrl = DEFAULT_BASE_URL) {
+  return request(baseUrl, "/voters/blind/public-key");
+}
+
+export async function requestBlindSignature(baseUrl, payload) {
+  return request(baseUrl, "/voters/blind/sign", {
     method: "POST",
-    headers,
-    body: JSON.stringify(voterInput)
+    body: JSON.stringify(payload),
   });
 }
 

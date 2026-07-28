@@ -1,8 +1,12 @@
+x-shared-rsa-key: &shared-rsa-key
+  ADMIN_RSA_PRIVATE_KEY_PEM: "-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQDX+VcYoZypbAxt\nJNmKPN0IVRhzipfeuHWnO5gajynS3OdjktMU+AWJK55Z8canG2NH/7SCs/aE2wkj\nrFqMBkBwgYPeZIVH0F/W5kUqB/E1oVsUpbRrG9RUl2EZTnmKZHn1TGVDhEbKN5DQ\nzHomYu/6G1gCL2QEgwAXR22hVRYnn4L1BJwi5QQMIRYGEx5TuomPx8ML6wdL5oTn\njCrAkB3eG0a5ORFnbKliggVE/vrkzCq6xCLdsnau5oNrKkgaMusVs43RpxDEIJFK\nI9iYeMZEEz78odORH4IRJ5cxpJ7N3DirJpiKLG5Dc66rYUGu8ch7/SZxQGs5o+oR\npF/tJmv/AgMBAAECggEAI0EScbUGd3S+4zK7MetfzI7mHWItCpBDYEeEO32ivvFh\nR1STETQFOfq9RVhdQYThJBe+QFbzsYR2+EmXmY4hsbEVNKsQQy86nb/b4BGzfY93\nvdCTY/0typslS0tkiph+fJylAQGUHp6LDJJRiXeSowRt+CQCkxFL5VY7CTVJlwY6\nxkJZaRUoMqCXJg9WAcA+R9qwXxkeNLCZ2debBwGucqxQqOJg94zKazdkerQkKBCD\nR+HejaP9panW8MFbiqonrJ9jInzNRLCvBKoxTO6src6a7fLmDixoHjDJXE2XSERL\na2KHRR6Tje3qHslFx4ny/AaRG3AZCdB8WPbcvQlD+QKBgQDtUwmhng+rQYhZzET9\ngNKuexGx43gzUeNB7BDtSRgyqqj/9dMlY3zZuDX+2wgj5gyCLwZyE4eSZvCo4eiM\nwBtWK2Qb4TaGE8WTBMTVH52zOU/lKKgYNp9w66LLyw587+AaEi9yxanFCRUizydU\nK4F7oCpKTU0vmRb0vL3zq4jC6QKBgQDo+DGKAl50m3eoQ7dy6fXXl768fIwNEQCQ\nhm+6lyON6bxGteyxFM8s4G9w3VUNSZwgPBL7oHbe7dT/yPiwrLGs4fD5lPbkHJ7J\nQeyVsaBhFBbKFzkgY3mWQFWsy8ak/c1R3g6KGlfhwjmhBo2dGtrSB7nlzdhErcaA\nlwadrq1WpwKBgFmqSvRGHNNugg6zb8l7t532n5vfPpXdNYi9oTOVr0/NTObQQQNa\nUFyODdCJfszZaRZyn/PPzyQQQpL8L3mmR23KHRuvfoMvyzEd1yRSuqlxWO9S6hej\n45+tV6e5w3KOytPu1QB/EAKCyPqK2+ggO96yh+fkxunZ5GN5QCdlQtmpAoGAFmb3\nbIv5xUDF6tpII7a3uzmOT9WyKfd+lGc5CzpJYvYc8re/wO99VJVoYfQGn7Z6Wucr\n9CJkC9/W4ZnTwDl7BGLdp0JZ02mlIzlBpMtl3q/t2RUOmzy1jms1Ud5uhaMaQUsX\nHtSVqtHgdMmKiJbyf8vaZmy65S/IrMjZDASmCnUCgYBi5JLpanYCFASeq/4TQTHE\nvFVLQJ4s2B5QHgc12ONE/hWAzxu7GbE8LPeSe88kqJrhkYhLMFwGk25JFTYdPokq\nmDDDb8G9Qfhtr7luD1xIZZf/N7RbbeGFvy+xqCls63oHqZavo7weqQcMJ9xt0rln\n3AsuXLOzLwAZxRE3VwWR5A==\n-----END PRIVATE KEY-----"
+
 services:
   node1:
     build: .
     container_name: blockchain-node1
     environment:
+      <<: *shared-rsa-key
       DIFFICULTY: "5"
       BLOCKCHAIN_DATA: "/data/node1.json"
       PORT: "8001"
@@ -10,6 +14,7 @@ services:
       CORS_ALLOW_ORIGINS: "http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173"
       SELF_NODE_URL: "http://node1:8001"
       PEER_NODES: "http://node2:8002,http://node3:8003"
+      OPEN_VOTER_REGISTRATION: "true"
     ports:
       - "8001:8001"
     volumes:
@@ -19,6 +24,7 @@ services:
     build: .
     container_name: blockchain-node2
     environment:
+      <<: *shared-rsa-key
       DIFFICULTY: "5"
       BLOCKCHAIN_DATA: "/data/node2.json"
       PORT: "8002"
@@ -26,6 +32,7 @@ services:
       CORS_ALLOW_ORIGINS: "http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173"
       SELF_NODE_URL: "http://node2:8002"
       PEER_NODES: "http://node1:8001,http://node3:8003"
+      OPEN_VOTER_REGISTRATION: "true"
     ports:
       - "8002:8002"
     volumes:
@@ -35,6 +42,7 @@ services:
     build: .
     container_name: blockchain-node3
     environment:
+      <<: *shared-rsa-key
       DIFFICULTY: "5"
       BLOCKCHAIN_DATA: "/data/node3.json"
       PORT: "8003"
@@ -42,6 +50,7 @@ services:
       CORS_ALLOW_ORIGINS: "http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173"
       SELF_NODE_URL: "http://node3:8003"
       PEER_NODES: "http://node1:8001,http://node2:8002"
+      OPEN_VOTER_REGISTRATION: "true"
     ports:
       - "8003:8003"
     volumes:

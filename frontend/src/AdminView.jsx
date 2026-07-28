@@ -4,9 +4,7 @@ import {
   fetchChain,
   fetchElectionResults,
   mineCluster,
-  fetchVoters,
   broadcastToNetwork,
-  createElection,
   issueRegistrationCode,
 } from "./api";
 
@@ -42,7 +40,7 @@ function BlockList({ chainData }) {
             <div className="vote-chip-row">
               {block.transactions.slice(0, 5).map((vote, index) => (
                 <div key={`${block.hash}-${index}`} className="vote-chip">
-                  {vote.voter_id} → {vote.candidate_id}
+                  {vote.candidate_id}
                 </div>
               ))}
               {block.transactions.length > 5 && (
@@ -52,31 +50,6 @@ function BlockList({ chainData }) {
           )}
         </article>
       ))}
-    </div>
-  );
-}
-
-function VoterRegistry({ voters, totalVoters }) {
-  return (
-    <div className="info-list">
-      <p className="stat-label">Registered Voters: {totalVoters}</p>
-      {totalVoters === 0 ? (
-        <p className="muted">No voters registered yet.</p>
-      ) : (
-        <div style={{ marginTop: "0.75rem", maxHeight: "200px", overflowY: "auto" }}>
-          {Object.entries(voters || {}).slice(0, 15).map(([voterId, pubKey]) => (
-            <div key={voterId} className="info-row">
-              <span>✓</span>
-              <div>
-                <strong>{voterId}</strong>
-                <p className="muted" style={{ fontSize: "0.75rem", margin: "0.25rem 0 0" }}>
-                  {pubKey.substring(0, 20)}...
-                </p>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
@@ -124,14 +97,11 @@ export default function AdminView({ adminToken: initialAdminToken = "", setAdmin
   const [baseUrl, setBaseUrl] = useState(DEFAULT_BASE_URL);
   const [adminToken, setLocalAdminToken] = useState(initialAdminToken || "");
   const [chainData, setChainData] = useState(null);
-  const [voters, setVoters] = useState({});
   const [resultsData, setResultsData] = useState(null);
   const [resultElectionId, setResultElectionId] = useState("student-union-2026");
-  const [newElectionId, setNewElectionId] = useState("");
   const [loading, setLoading] = useState(false);
   const [actionMessage, setActionMessage] = useState("");
   const [actionError, setActionError] = useState("");
-  const [issueVoterId, setIssueVoterId] = useState("");
   const [issueExpiresMinutes, setIssueExpiresMinutes] = useState("60");
   const [issueElectionId, setIssueElectionId] = useState("student-union-2026");
   const [issueCodeResult, setIssueCodeResult] = useState("");
@@ -143,7 +113,6 @@ export default function AdminView({ adminToken: initialAdminToken = "", setAdmin
         pendingVotes: "-",
         peers: "-",
         difficulty: "-",
-        registeredVoters: "-"
       };
     }
 
@@ -152,9 +121,8 @@ export default function AdminView({ adminToken: initialAdminToken = "", setAdmin
       pendingVotes: chainData.pending_votes,
       peers: chainData.nodes?.length || 0,
       difficulty: chainData.difficulty,
-      registeredVoters: Object.keys(voters).length || 0
     };
-  }, [chainData, voters]);
+  }, [chainData]);
 
   const loadChainData = async () => {
     try {
@@ -166,15 +134,6 @@ export default function AdminView({ adminToken: initialAdminToken = "", setAdmin
       setActionError(`Failed to load chain: ${err.message}`);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const loadVoters = async () => {
-    try {
-      const data = await fetchVoters(baseUrl);
-      setVoters(data.voter_registry || {});
-    } catch (err) {
-      setActionError(`Failed to load voters: ${err.message}`);
     }
   };
 
@@ -234,40 +193,35 @@ export default function AdminView({ adminToken: initialAdminToken = "", setAdmin
       setActionError("");
       setIssueCodeResult("");
 
-      if (!issueVoterId.trim()) {
-        throw new Error("Enter a voter ID");
-      }
-
       const tokenToUse = adminToken || "";
-      const result = await issueRegistrationCode(
-        baseUrl,
-        {
-          voter_id: issueVoterId.trim(),
-          election_id: issueElectionId?.trim() || undefined,
-          expires_in_minutes: Number(issueExpiresMinutes) || 60,
-        },
-        tokenToUse
-      );
+      const payload = {
+        election_id: issueElectionId?.trim() || undefined,
+        expires_in_minutes: Number(issueExpiresMinutes) || 60,
+      };
+      console.log("Issuing registration code with payload:", payload);
+
+      const result = await issueRegistrationCode(baseUrl, payload, tokenToUse);
+      console.log("Registration code response:", result);
 
       setIssueCodeResult(result.registration_code);
-      setActionMessage(
-        `Registration code issued for ${result.voter_id}. Share it with the voter.`
-      );
+      setActionMessage("Blind-vote invitation prepared. Share it with the voter.");
     } catch (err) {
-      setActionError(`Code issuance failed: ${err.message}`);
+      console.error("Code issuance error:", err);
+      const errorMessage =
+        err?.message ||
+        (typeof err === "string" ? err : JSON.stringify(err)) ||
+        "Unknown error";
+      setActionError(`Code issuance failed: ${errorMessage}`);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    // Load once on mount (or when `baseUrl` changes). Manual refresh available.
     loadChainData();
-    loadVoters();
     return () => {};
   }, [baseUrl]);
 
-  // Keep local token in sync with prop updates to avoid input flicker
   useEffect(() => {
     setLocalAdminToken(initialAdminToken || "");
   }, [initialAdminToken]);
@@ -342,7 +296,6 @@ export default function AdminView({ adminToken: initialAdminToken = "", setAdmin
           <StatCard label="Pending Votes" value={networkStats.pendingVotes} />
           <StatCard label="Connected Peers" value={networkStats.peers} />
           <StatCard label="Difficulty" value={networkStats.difficulty} />
-          <StatCard label="Registered Voters" value={networkStats.registeredVoters} />
         </div>
 
         <div className="view-grid">
@@ -360,17 +313,9 @@ export default function AdminView({ adminToken: initialAdminToken = "", setAdmin
           </div>
 
           <div className="panel">
-            <h3>Issue Registration Code</h3>
+            <h3>Blind-Vote Invitation</h3>
+            <p className="muted">Issue a one-time invitation code so a voter can get a blind signature.</p>
             <div className="form">
-              <label>
-                Voter ID
-                <input
-                  type="text"
-                  value={issueVoterId}
-                  onChange={(e) => setIssueVoterId(e.target.value)}
-                  placeholder="wallet-voter id"
-                />
-              </label>
               <label>
                 Election ID (optional)
                 <input
@@ -381,7 +326,7 @@ export default function AdminView({ adminToken: initialAdminToken = "", setAdmin
                 />
               </label>
               <label>
-                Expiry Minutes
+                Expires (minutes)
                 <input
                   type="number"
                   min="1"
@@ -391,12 +336,12 @@ export default function AdminView({ adminToken: initialAdminToken = "", setAdmin
                 />
               </label>
               <button className="primary" onClick={handleIssueCode} disabled={loading}>
-                Issue One-Time Code
+                Prepare Invitation
               </button>
             </div>
             {issueCodeResult && (
               <div className="notice" style={{ wordBreak: "break-all" }}>
-                Code: <strong>{issueCodeResult}</strong>
+                Invitation: <strong>{issueCodeResult}</strong>
               </div>
             )}
           </div>
@@ -429,10 +374,6 @@ export default function AdminView({ adminToken: initialAdminToken = "", setAdmin
         </div>
 
         <div className="view-grid">
-          <div className="panel">
-            <VoterRegistry voters={voters} totalVoters={networkStats.registeredVoters} />
-          </div>
-
           <div className="panel">
             {resultsData && (
               <ElectionResults electionId={resultElectionId} results={resultsData} />

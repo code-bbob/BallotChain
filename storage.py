@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -10,14 +11,18 @@ class JsonStorage:
         self.file_path = Path(file_path)
 
     def save(self, data: dict[str, Any]) -> None:
-        if self.file_path.parent and not self.file_path.parent.exists():
-            self.file_path.parent.mkdir(parents=True, exist_ok=True)
+        path = self.file_path
+        # Docker bind mount may have created a directory for a missing file
+        if path.is_dir():
+            shutil.rmtree(path)
+        if path.parent and not path.parent.exists():
+            path.parent.mkdir(parents=True, exist_ok=True)
 
-        with self.file_path.open("w", encoding="utf-8") as handle:
+        with path.open("w", encoding="utf-8") as handle:
             json.dump(data, handle, indent=2)
 
     def load(self) -> dict[str, Any] | None:
-        if not self.file_path.exists():
+        if not self.file_path.is_file():
             return None
 
         with self.file_path.open("r", encoding="utf-8") as handle:

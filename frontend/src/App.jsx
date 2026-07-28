@@ -86,7 +86,7 @@ export default function App() {
         <div className="page-frame">
           {renderTopBar(
             "Voting Console",
-            "Generate a wallet, register it, and cast signed votes with live network feedback."
+            "Blind-sign anonymous voting with live network feedback."
           )}
           <VoterView />
         </div>
@@ -120,7 +120,7 @@ export default function App() {
             <p className="eyebrow">Real-time election flow</p>
             <h2>Vote, mine, and verify in one coherent interface.</h2>
             <p className="hero-copy">
-              The admin console issues registration codes, the voter console signs ballots locally, and the network races to mine and propagate the winning block.
+              The admin console issues blind-vote invitations, voters submit anonymous blind-signed ballots, and the network races to mine and propagate the winning block.
             </p>
 
             <div className="landing-actions">
@@ -199,12 +199,12 @@ export default function App() {
           <article className="panel feature-card">
             <p className="eyebrow">Governance</p>
             <h2>Admin cockpit</h2>
-            <p className="muted">Issue registration codes, inspect the chain, and control mining from one focused dashboard.</p>
+            <p className="muted">Prepare blind-registration invitations, inspect the chain, and control mining from one focused dashboard.</p>
           </article>
           <article className="panel feature-card">
             <p className="eyebrow">Voting</p>
-            <h2>Wallet-first voting</h2>
-            <p className="muted">Generate a wallet locally, bind it to an election, and submit signed votes with instant feedback.</p>
+            <h2>Anonymous voting</h2>
+            <p className="muted">Blind-sign your ballot locally, get admin authorization, and submit anonymously with instant feedback.</p>
           </article>
           <article className="panel feature-card">
             <p className="eyebrow">Transparency</p>

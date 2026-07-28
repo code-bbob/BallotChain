@@ -5,11 +5,28 @@ Demonstrates end-to-end voting workflow from registration to vote tally
 """
 
 import requests
+import hashlib
+import secrets
 import json
-from pathlib import Path
-from crypto_utils import sign_vote, public_key_from_private_key, canonical_vote_message
+from crypto_utils import sign_vote, public_key_from_private_key
 
 BASE_URL = "http://127.0.0.1:8001"
+
+
+def hash_to_int_mod_n(value: str, modulus: int) -> int:
+    digest = hashlib.sha256(value.encode("utf-8")).digest()
+    hashed = int.from_bytes(digest, byteorder="big") % modulus
+    return hashed if hashed > 0 else 1
+
+
+def random_coprime_below(modulus: int) -> int:
+    while True:
+        candidate = secrets.randbelow(modulus - 1) + 1
+        try:
+            pow(candidate, -1, modulus)
+            return candidate
+        except ValueError:
+            continue
 
 def demo():
     print("\n" + "="*60)
@@ -36,25 +53,99 @@ def demo():
         
         print(f"  {voter_id}: Generated keypair")
     
-    # Register voters
-    print("\n2. REGISTERING VOTERS")
+    # Authenticate admin for issuing registration codes (default local creds)
+    print("\n2. ADMIN AUTHENTICATION")
+    print("-" * 40)
+
+    token = ""
+    login_response = requests.post(
+        f"{BASE_URL}/admin/login",
+        json={"username": "admin", "password": "admin123", "expires_in_minutes": 60},
+    )
+    if login_response.status_code == 200:
+        token = login_response.json().get("access_token", "")
+        print("  ✓ Admin login success")
+    else:
+        print("  ✗ Admin login failed; cannot issue registration codes")
+        print(f"    {login_response.text}")
+        return
+
+    # Fetch blind-sign public key once
+    blind_key_response = requests.get(f"{BASE_URL}/voters/blind/public-key")
+    if blind_key_response.status_code != 200:
+        print(f"  ✗ Could not fetch blind-sign key: {blind_key_response.text}")
+        return
+
+    blind_key = blind_key_response.json()
+    n = int(str(blind_key.get("n", "")).strip())
+    e = int(str(blind_key.get("e", "")).strip())
+
+    # Register voters using blind-signature workflow
+    print("\n3. REGISTERING VOTERS (BLIND-SIGN)")
     print("-" * 40)
     
     for voter_id, keys in voters.items():
-        response = requests.post(
+        issue_response = requests.post(
+            f"{BASE_URL}/voters/codes/issue",
+            json={
+                "election_id": "student-union-2026",
+                "expires_in_minutes": 60,
+            },
+            headers={"Authorization": f"Bearer {token}", "X-Admin-Token": token},
+        )
+        if issue_response.status_code != 200:
+            print(f"  {voter_id}: ✗ code issue failed: {issue_response.text}")
+            continue
+
+        registration_code = issue_response.json().get("registration_code", "")
+        serial_payload = {
+            "v": 1,
+            "election_id": "student-union-2026",
+            "nonce": secrets.token_hex(16),
+        }
+        blind_serial = json.dumps(serial_payload, sort_keys=True, separators=(",", ":"))
+        serial_hash = hash_to_int_mod_n(blind_serial, n)
+        r = random_coprime_below(n)
+        blinded_hash = (serial_hash * pow(r, e, n)) % n
+
+        blind_sign_response = requests.post(
+            f"{BASE_URL}/voters/blind/sign",
+            json={
+                "registration_code": registration_code,
+                "election_id": "student-union-2026",
+                "blinded_hash": str(blinded_hash),
+            },
+        )
+        if blind_sign_response.status_code != 200:
+            print(f"  {voter_id}: ✗ blind sign failed: {blind_sign_response.text}")
+            continue
+
+        blind_signature_hex = str(blind_sign_response.json().get("blind_signature", "")).strip()
+        blind_signature_int = int(blind_signature_hex, 16)
+        unblinded_signature = (blind_signature_int * pow(r, -1, n)) % n
+
+        if pow(unblinded_signature, e, n) != serial_hash:
+            print(f"  {voter_id}: ✗ local blind-sign verification failed")
+            continue
+
+        register_response = requests.post(
             f"{BASE_URL}/voters/register",
             json={
                 "voter_id": voter_id,
                 "voter_public_key": keys["public_key"],
-            }
+                "election_id": "student-union-2026",
+                "blind_serial": blind_serial,
+                "blind_signature": str(unblinded_signature),
+            },
         )
-        if response.status_code == 200:
-            print(f"  {voter_id}: ✓ Registered")
+
+        if register_response.status_code == 200:
+            print(f"  {voter_id}: ✓ Registered (blind-sign)")
         else:
-            print(f"  {voter_id}: ✗ {response.text}")
+            print(f"  {voter_id}: ✗ {register_response.text}")
     
     # Cast votes
-    print("\n3. CASTING VOTES")
+    print("\n4. CASTING VOTES")
     print("-" * 40)
     
     votes = [
@@ -90,7 +181,7 @@ def demo():
             print(f"  {voter_id} → {candidate_id}: ✗ {response.json().get('detail', 'Error')}")
     
     # Get pending votes
-    print("\n4. PENDING VOTES STATUS")
+    print("\n5. PENDING VOTES STATUS")
     print("-" * 40)
     
     response = requests.get(f"{BASE_URL}/chain")
@@ -100,7 +191,7 @@ def demo():
     print(f"  Chain length: {len(chain_data.get('chain', []))}")
     
     # Mine block
-    print("\n5. MINING BLOCK")
+    print("\n6. MINING BLOCK")
     print("-" * 40)
     
     response = requests.post(f"{BASE_URL}/mine/cluster?limit=100")
@@ -116,7 +207,7 @@ def demo():
         print(f"  ✗ Mining failed: {response.text}")
     
     # Get results
-    print("\n6. ELECTION RESULTS")
+    print("\n7. ELECTION RESULTS")
     print("-" * 40)
     
     for election_id in ["student-union-2026", "board-election-2026"]:
@@ -129,7 +220,7 @@ def demo():
                 print(f"      {candidate}: {votes} votes")
     
     # Display voter registry
-    print("\n7. VOTER REGISTRY")
+    print("\n8. VOTER REGISTRY")
     print("-" * 40)
     
     response = requests.get(f"{BASE_URL}/voters")
@@ -140,7 +231,7 @@ def demo():
             print(f"    - {voter_id}")
     
     # Display blockchain
-    print("\n8. BLOCKCHAIN STATE")
+    print("\n9. BLOCKCHAIN STATE")
     print("-" * 40)
     
     response = requests.get(f"{BASE_URL}/chain")

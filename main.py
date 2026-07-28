@@ -13,6 +13,8 @@ from time import time as time_now
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 
 from block import Block
 from blockchain import Blockchain
@@ -22,21 +24,22 @@ from storage import JsonStorage
 # 1) Run multiple nodes:
 #    DIFFICULTY=3 BLOCKCHAIN_DATA=node1.json uvicorn main:app --host 127.0.0.1 --port 8001
 #    DIFFICULTY=3 BLOCKCHAIN_DATA=node2.json uvicorn main:app --host 127.0.0.1 --port 8002
-# 2) Cast a vote:
-#    curl -X POST "http://127.0.0.1:8001/votes" -H "Content-Type: application/json" -d '{"voter_id":"V001","candidate_id":"Alice","election_id":"student-union-2026"}'
-# 3) Mine:
+# 2) Admin issues invitation code:
+#    curl -X POST "http://127.0.0.1:8001/voters/codes/issue" -H "X-Admin-Token: admin" -H "Content-Type: application/json" -d '{"election_id":"student-union-2026"}'
+# 3) Voter blinds vote, gets admin signature, submits anonymously:
+#    (see cast_blind_vote.py for the full flow)
+# 4) Mine:
 #    curl "http://127.0.0.1:8001/mine"
-# 4) Register peers:
+# 5) Register peers:
 #    curl -X POST "http://127.0.0.1:8001/nodes/register" -H "Content-Type: application/json" -d '{"nodes":["http://127.0.0.1:8002"]}'
-# 5) View results:
+# 6) View results:
 #    curl "http://127.0.0.1:8001/elections/student-union-2026/results"
 
 
 class VoteIn(BaseModel):
-    voter_id: str = Field(min_length=1)
     candidate_id: str = Field(min_length=1)
     election_id: str = Field(min_length=1)
-    voter_public_key: str = Field(min_length=1)
+    nonce: str = Field(min_length=1)
     signature: str = Field(min_length=1)
 
 
@@ -44,21 +47,13 @@ class NodeRegistrationIn(BaseModel):
     nodes: list[str]
 
 
-class VoterRegistrationIn(BaseModel):
-    voter_id: str = Field(min_length=1)
-    voter_public_key: str = Field(min_length=1)
-    registration_code: str = Field(default="")
-    election_id: str | None = None
-
-
-class VoterReplicationIn(BaseModel):
-    voter_id: str = Field(min_length=1)
-    voter_public_key: str = Field(min_length=1)
+class BlindSignIn(BaseModel):
+    registration_code: str = Field(min_length=1)
+    blinded_hash: str = Field(min_length=1)
     election_id: str | None = None
 
 
 class RegistrationCodeIssueIn(BaseModel):
-    voter_id: str = Field(min_length=1)
     election_id: str | None = None
     expires_in_minutes: int = Field(default=60, ge=1, le=10080)
 
@@ -81,7 +76,6 @@ class BlockIn(BaseModel):
 class ChainSyncIn(BaseModel):
     difficulty: int
     chain: list[dict[str, Any]]
-    voter_registry: dict[str, str] = Field(default_factory=dict)
 
 
 class RemoteMineIn(BaseModel):
@@ -118,6 +112,49 @@ OPEN_VOTER_REGISTRATION = os.getenv("OPEN_VOTER_REGISTRATION", "").strip().lower
 logging.basicConfig(level=logging.INFO, format="[%(asctime)s] [%(levelname)s] [%(threadName)s] %(message)s")
 logger = logging.getLogger(__name__)
 
+
+def _normalize_multiline_secret(value: str) -> str:
+    return value.replace("\\n", "\n").strip()
+
+
+def _load_admin_rsa_private_key() -> rsa.RSAPrivateKey:
+    pem_from_env = _normalize_multiline_secret(os.getenv("ADMIN_RSA_PRIVATE_KEY_PEM", ""))
+    if pem_from_env:
+        key = serialization.load_pem_private_key(pem_from_env.encode("utf-8"), password=None)
+        if not isinstance(key, rsa.RSAPrivateKey):
+            raise ValueError("ADMIN_RSA_PRIVATE_KEY_PEM must contain an RSA private key")
+        return key
+
+    # Dev-friendly fallback: ephemeral key generated at startup.
+    return rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+
+ADMIN_RSA_PRIVATE_KEY = _load_admin_rsa_private_key()
+ADMIN_RSA_PUBLIC_KEY = ADMIN_RSA_PRIVATE_KEY.public_key()
+ADMIN_RSA_PUBLIC_NUMBERS = ADMIN_RSA_PUBLIC_KEY.public_numbers()
+ADMIN_RSA_PRIVATE_NUMBERS = ADMIN_RSA_PRIVATE_KEY.private_numbers()
+ADMIN_RSA_N = int(ADMIN_RSA_PUBLIC_NUMBERS.n)
+ADMIN_RSA_E = int(ADMIN_RSA_PUBLIC_NUMBERS.e)
+ADMIN_RSA_D = int(ADMIN_RSA_PRIVATE_NUMBERS.d)
+
+
+def _parse_modular_int(value: str, field_name: str) -> int:
+    text = value.strip().lower()
+    if not text:
+        raise ValueError(f"{field_name} is required")
+
+    base = 16 if text.startswith("0x") else 10
+    try:
+        parsed = int(text, base)
+    except ValueError as error:
+        raise ValueError(f"{field_name} must be a valid integer") from error
+
+    if parsed <= 0 or parsed >= ADMIN_RSA_N:
+        raise ValueError(f"{field_name} must be in range (0, n)")
+
+    return parsed
+
+
 storage = JsonStorage(DATA_FILE)
 persisted = storage.load()
 
@@ -134,6 +171,10 @@ else:
 
 if blockchain.difficulty != DIFFICULTY:
     blockchain.difficulty = DIFFICULTY
+
+# Set admin RSA public key on blockchain for vote signature verification
+blockchain.admin_n = ADMIN_RSA_N
+blockchain.admin_e = ADMIN_RSA_E
 
 app = FastAPI(title="Blockchain Voting Node", version="2.0.0")
 
@@ -195,7 +236,9 @@ def assert_admin_access(x_admin_token: str | None) -> None:
 
 
 def assert_governance_access(x_admin_token: str | None, authorization: str | None = None) -> None:
-    # Allow when no admin protection configured
+    # Allow when open registration or no admin protection configured
+    if OPEN_VOTER_REGISTRATION in ("1", "true", "yes"):
+        return
     if not ADMIN_TOKEN and not JWT_SECRET:
         return
 
@@ -264,7 +307,6 @@ def broadcast_block_to_peers(mined_block: Block) -> dict[str, int]:
                     json={
                         "difficulty": blockchain.difficulty,
                         "chain": [block.to_dict() for block in blockchain.chain],
-                        "voter_registry": blockchain.voter_registry,
                     },
                     timeout=5,
                 )
@@ -324,40 +366,6 @@ def broadcast_transaction_to_peers(vote: dict[str, Any]) -> dict[str, int]:
     }
 
 
-def broadcast_voter_to_peers(voter: dict[str, Any]) -> dict[str, int]:
-    accepted = 0
-    rejected = 0
-    unreachable = 0
-
-    for node in blockchain.nodes:
-        try:
-            response = requests.post(
-                f"{node}/voters/receive",
-                json=voter,
-                timeout=5,
-            )
-            if response.status_code == 200:
-                accepted += 1
-                _log_node_event(logging.INFO, "Voter registration accepted by %s", node)
-            else:
-                rejected += 1
-                _log_node_event(
-                    logging.WARNING,
-                    "Voter registration rejected by %s: %s",
-                    node,
-                    response.text[:200],
-                )
-        except requests.RequestException:
-            unreachable += 1
-            _log_node_event(logging.WARNING, "Voter registration unreachable for %s", node)
-
-    return {
-        "accepted": accepted,
-        "rejected": rejected,
-        "unreachable": unreachable,
-    }
-
-
 # Mining coordination primitives for this node
 miner_thread: threading.Thread | None = None
 miner_stop_event = threading.Event()
@@ -387,14 +395,8 @@ def _release_mining_slot() -> None:
         miner_stop_event.clear()
 
 
-def _vote_identity(vote: dict[str, Any]) -> tuple[str, str, str, str, str]:
-    return (
-        str(vote.get("voter_id", "")).strip(),
-        str(vote.get("candidate_id", "")).strip(),
-        str(vote.get("election_id", "")).strip(),
-        str(vote.get("voter_public_key", "")).strip(),
-        str(vote.get("signature", "")).strip(),
-    )
+def _vote_identity(vote: dict[str, Any]) -> str:
+    return str(vote.get("nonce", "")).strip()
 
 
 def _remove_mined_transactions_from_mempool(transactions: list[dict[str, Any]]) -> int:
@@ -573,7 +575,6 @@ def get_chain() -> dict[str, Any]:
         "pending_votes": len(blockchain.pending_transactions),
         "chain": [block.to_dict() for block in blockchain.chain],
         "nodes": sorted(blockchain.nodes),
-        "registered_voters": len(blockchain.voter_registry),
     }
 
 
@@ -586,9 +587,7 @@ def issue_registration_code(
     assert_governance_access(x_admin_token, authorization)
 
     try:
-        result = blockchain.issue_registration_code_for(
-            payload.voter_id, payload.election_id, payload.expires_in_minutes
-        )
+        result = blockchain.issue_invitation_code_for(payload.election_id, payload.expires_in_minutes)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
@@ -628,87 +627,53 @@ def admin_login(payload: AdminLoginIn) -> dict[str, Any]:
 
 
 @app.post("/voters/register")
-def register_voter(
-    payload: VoterRegistrationIn,
-    x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
-) -> dict[str, Any]:
-    try:
-        registration_code = payload.registration_code.strip()
-        election_id = payload.election_id
+def register_voter() -> dict[str, Any]:
+    raise HTTPException(status_code=410, detail="Direct voter registration removed. Use blind-sign voting via POST /votes.")
 
-        if registration_code:
-            blockchain.register_voter_with_code(
-                payload.voter_id,
-                payload.voter_public_key,
-                registration_code,
-                election_id,
-            )
-        elif OPEN_VOTER_REGISTRATION in ("1", "true", "yes"):
-            blockchain.register_voter(payload.voter_id, payload.voter_public_key)
-        else:
-            raise ValueError("registration_code is required")
+
+@app.get("/voters/blind/public-key")
+def get_blind_signature_public_key() -> dict[str, Any]:
+    return {
+        "algorithm": "RSA",
+        "hash": "SHA-256",
+        "e": str(ADMIN_RSA_E),
+        "n": str(ADMIN_RSA_N),
+        "e_hex": format(ADMIN_RSA_E, "x"),
+        "n_hex": format(ADMIN_RSA_N, "x"),
+        "modulus_bits": ADMIN_RSA_PUBLIC_KEY.key_size,
+    }
+
+
+@app.post("/voters/blind/sign")
+def blind_sign_registration(payload: BlindSignIn) -> dict[str, Any]:
+    try:
+        entry = blockchain.consume_invitation_code(payload.registration_code, payload.election_id)
+
+        entry_election = str(entry.get("election_id", "")).strip() or None
+        blinded_hash_int = _parse_modular_int(payload.blinded_hash, "blinded_hash")
+        blind_signature_int = pow(blinded_hash_int, ADMIN_RSA_D, ADMIN_RSA_N)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
     persist_state()
-    broadcast_result = broadcast_voter_to_peers(
-        {
-            "voter_id": payload.voter_id.strip(),
-            "voter_public_key": payload.voter_public_key.strip(),
-            "election_id": payload.election_id,
-        }
-    )
     return {
-        "message": "Voter registered",
-        "voter_id": payload.voter_id.strip(),
-        "registered_voters": len(blockchain.voter_registry),
-        "broadcast": broadcast_result,
+        "message": "Blinded hash signed successfully",
+        "election_id": entry_election,
+        "blind_signature": format(blind_signature_int, "x"),
     }
 
 
 @app.post("/voters/receive")
-def receive_voter_registration(payload: VoterReplicationIn) -> dict[str, Any]:
-    try:
-        if payload.election_id is None:
-            blockchain.register_voter(payload.voter_id, payload.voter_public_key)
-        else:
-            voter_id = payload.voter_id.strip()
-            voter_public_key = payload.voter_public_key.strip()
-            election_id = payload.election_id.strip() if payload.election_id else None
-
-            if not voter_id:
-                raise ValueError("voter_id is required")
-            if not voter_public_key:
-                raise ValueError("voter_public_key is required")
-
-            existing_public_key = blockchain.voter_registry.get(voter_id)
-            if existing_public_key and existing_public_key != voter_public_key:
-                raise ValueError("voter_id is already registered with a different public key")
-
-            blockchain.voter_registry[voter_id] = voter_public_key
-            if election_id:
-                if voter_id not in blockchain.voter_elections:
-                    blockchain.voter_elections[voter_id] = set()
-                blockchain.voter_elections[voter_id].add(election_id)
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
-
-    persist_state()
-    _log_node_event(
-        logging.INFO,
-        "Voter registration received: voter=%s election=%s",
-        payload.voter_id,
-        payload.election_id or "global",
-    )
-    return {"message": "Voter registration accepted", "voter_id": payload.voter_id.strip()}
+def receive_voter_registration() -> dict[str, Any]:
+    raise HTTPException(status_code=410, detail="Voter registration broadcasting removed.")
 
 
 @app.get("/voters")
 def list_voters() -> dict[str, Any]:
     return {
-        "registered_voters": len(blockchain.voter_registry),
-        "voter_ids": sorted(blockchain.voter_registry.keys()),
-        "voter_registry": dict(blockchain.voter_registry),
+        "message": "Voter registry removed. See chain for anonymous votes.",
+        "registered_voters": 0,
+        "voter_ids": [],
     }
 
 
@@ -716,44 +681,40 @@ def list_voters() -> dict[str, Any]:
 def cast_vote(vote: VoteIn) -> dict[str, Any]:
     try:
         index = blockchain.add_vote(
-            vote.voter_id,
             vote.candidate_id,
             vote.election_id,
-            vote.voter_public_key,
+            vote.nonce,
             vote.signature,
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
-    # Persist local state
     persist_state()
     _log_node_event(
         logging.INFO,
-        "Vote accepted locally: voter=%s election=%s candidate=%s pending=%d",
-        vote.voter_id,
+        "Anonymous vote accepted: election=%s candidate=%s nonce=%s pending=%d",
         vote.election_id,
         vote.candidate_id,
+        vote.nonce[:16],
         len(blockchain.pending_transactions),
     )
 
-    # Broadcast this vote to peers' mempools so they can compete to mine it
     try:
         broadcast_result = broadcast_transaction_to_peers(
             {
-                "voter_id": vote.voter_id,
                 "candidate_id": vote.candidate_id,
                 "election_id": vote.election_id,
-                "voter_public_key": vote.voter_public_key,
+                "nonce": vote.nonce,
                 "signature": vote.signature,
                 "timestamp": str(datetime.utcnow().timestamp()),
             }
         )
     except Exception:
         broadcast_result = {"accepted": 0, "rejected": 0, "unreachable": 0}
-        _log_node_event(logging.WARNING, "Vote broadcast failed unexpectedly for voter=%s", vote.voter_id)
+        _log_node_event(logging.WARNING, "Vote broadcast failed unexpectedly for nonce=%s", vote.nonce[:16])
 
     return {
-        "message": f"Vote will be added to block {index}",
+        "message": f"Anonymous vote will be added to block {index}",
         "pending_votes": len(blockchain.pending_transactions),
         "broadcast": broadcast_result,
     }
@@ -772,22 +733,18 @@ def mempool_receive(vote: VoteIn) -> dict[str, Any]:
     the vote and appends it to `blockchain.pending_transactions` if valid.
     """
     try:
-        # If this exact voter already has a pending vote for the same election, ignore
-        if blockchain._has_vote(vote.voter_id, vote.election_id, blockchain.pending_transactions):
+        if blockchain._has_nonce(vote.nonce, blockchain.pending_transactions):
             _log_node_event(
                 logging.INFO,
-                "Duplicate mempool vote ignored: voter=%s election=%s",
-                vote.voter_id,
-                vote.election_id,
+                "Duplicate mempool vote ignored: nonce=%s",
+                vote.nonce[:16],
             )
             return {"message": "vote already in mempool", "pending_votes": len(blockchain.pending_transactions)}
 
-        # Re-use the same validation flow as cast_vote but do NOT rebroadcast
         index = blockchain.add_vote(
-            vote.voter_id,
             vote.candidate_id,
             vote.election_id,
-            vote.voter_public_key,
+            vote.nonce,
             vote.signature,
         )
     except ValueError as error:
@@ -796,9 +753,8 @@ def mempool_receive(vote: VoteIn) -> dict[str, Any]:
     persist_state()
     _log_node_event(
         logging.INFO,
-        "Vote accepted into mempool: voter=%s election=%s pending=%d",
-        vote.voter_id,
-        vote.election_id,
+        "Anonymous vote accepted into mempool: nonce=%s pending=%d",
+        vote.nonce[:16],
         len(blockchain.pending_transactions),
     )
     return {"message": "Vote accepted into mempool", "pending_votes": len(blockchain.pending_transactions)}
@@ -989,11 +945,6 @@ def sync_chain(payload: ChainSyncIn) -> dict[str, Any]:
 
     blockchain.chain = remote_chain
     blockchain.difficulty = payload.difficulty
-    blockchain.voter_registry = {
-        voter_id.strip(): public_key.strip()
-        for voter_id, public_key in payload.voter_registry.items()
-        if voter_id.strip() and public_key.strip()
-    }
     included_transactions = []
     for blk in remote_chain:
         included_transactions.extend(blk.transactions)

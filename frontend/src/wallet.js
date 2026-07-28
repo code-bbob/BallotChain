@@ -1,77 +1,138 @@
-import nacl from "tweetnacl";
-
-const WALLET_STORAGE_KEY = "blockchain-voting-wallet";
-
-function bytesToBase64(bytes) {
-  let binary = "";
-  bytes.forEach((byte) => {
-    binary += String.fromCharCode(byte);
-  });
-  return btoa(binary);
+function bytesToHex(bytes) {
+  return Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
 }
 
-function base64ToBytes(value) {
-  const binary = atob(value);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
+function gcd(a, b) {
+  let x = a;
+  let y = b;
+  while (y !== 0n) {
+    const temp = x % y;
+    x = y;
+    y = temp;
   }
-  return bytes;
+  return x;
 }
 
-function toUrlSafeId(value) {
-  return value.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+function modPow(base, exponent, modulus) {
+  if (modulus === 1n) return 0n;
+
+  let result = 1n;
+  let b = ((base % modulus) + modulus) % modulus;
+  let e = exponent;
+
+  while (e > 0n) {
+    if ((e & 1n) === 1n) {
+      result = (result * b) % modulus;
+    }
+    b = (b * b) % modulus;
+    e >>= 1n;
+  }
+
+  return result;
 }
 
-function canonicalVoteMessage(voter_id, candidate_id, election_id) {
-  return JSON.stringify({
-    candidate_id: candidate_id.trim(),
-    election_id: election_id.trim(),
-    voter_id: voter_id.trim(),
-  });
+function modInverse(value, modulus) {
+  let t = 0n;
+  let newT = 1n;
+  let r = modulus;
+  let newR = ((value % modulus) + modulus) % modulus;
+
+  while (newR !== 0n) {
+    const quotient = r / newR;
+    [t, newT] = [newT, t - quotient * newT];
+    [r, newR] = [newR, r - quotient * newR];
+  }
+
+  if (r !== 1n) {
+    throw new Error("No modular inverse for blinding factor");
+  }
+
+  if (t < 0n) {
+    t += modulus;
+  }
+
+  return t;
 }
 
-export function loadWallet() {
-  const raw = localStorage.getItem(WALLET_STORAGE_KEY);
+function randomBigIntBelow(maxExclusive) {
+  if (maxExclusive <= 1n) {
+    throw new Error("Invalid upper bound for random bigint generation");
+  }
 
-  if (!raw) return null;
+  const bitLength = maxExclusive.toString(2).length;
+  const byteLength = Math.ceil(bitLength / 8);
 
-  try {
-    const wallet = JSON.parse(raw);
-    if (!wallet?.voter_id || !wallet?.public_key || !wallet?.private_key) return null;
-    return wallet;
-  } catch {
-    return null;
+  while (true) {
+    const randomBytes = new Uint8Array(byteLength);
+    crypto.getRandomValues(randomBytes);
+    const randomValue = BigInt(`0x${bytesToHex(randomBytes)}`);
+    if (randomValue > 0n && randomValue < maxExclusive) {
+      return randomValue;
+    }
   }
 }
 
-export function saveWallet(wallet) {
-  localStorage.setItem(WALLET_STORAGE_KEY, JSON.stringify(wallet));
+export async function sha256ToBigInt(value) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return BigInt(`0x${bytesToHex(new Uint8Array(digest))}`);
 }
 
-export function clearWallet() {
-  localStorage.removeItem(WALLET_STORAGE_KEY);
+export function createBlindVoteMessage(candidate_id, election_id) {
+  const nonceBytes = new Uint8Array(16);
+  crypto.getRandomValues(nonceBytes);
+  const nonce = bytesToHex(nonceBytes);
+  const payload = {
+    candidate_id: (candidate_id || "").trim(),
+    election_id: (election_id || "").trim(),
+    nonce,
+  };
+  return JSON.stringify(payload);
 }
 
-export function createWallet() {
-  const seed = nacl.randomBytes(32);
-  const keyPair = nacl.sign.keyPair.fromSeed(seed);
-  const publicKeyBase64 = bytesToBase64(keyPair.publicKey);
-  const privateKeyBase64 = bytesToBase64(keyPair.secretKey);
-  const voter_id = `wallet-${toUrlSafeId(publicKeyBase64).slice(0, 12)}`;
+export async function createBlindVoteRequest(voteMessage, rsaPublicKey) {
+  const n = BigInt(rsaPublicKey.n);
+  const e = BigInt(rsaPublicKey.e);
+  const voteHash = (await sha256ToBigInt(voteMessage)) % n;
+  const targetHash = voteHash === 0n ? 1n : voteHash;
 
+  let r = 0n;
+  do {
+    r = randomBigIntBelow(n);
+  } while (gcd(r, n) !== 1n);
+
+  const blindedHash = (targetHash * modPow(r, e, n)) % n;
   return {
-    voter_id,
-    public_key: publicKeyBase64,
-    private_key: privateKeyBase64,
-    created_at: new Date().toISOString(),
+    blinded_hash_hex: blindedHash.toString(16),
+    r_hex: r.toString(16),
+    vote_hash_hex: targetHash.toString(16),
   };
 }
 
-export function signVote(voter_id, candidate_id, election_id, private_key_b64) {
-  if (!voter_id || !private_key_b64) throw new Error("Wallet and private key required to sign");
+export function unblindVoteSignature(blindSignatureHex, rHex, rsaPublicKey) {
+  const n = BigInt(rsaPublicKey.n);
+  const blindSignature = BigInt(`0x${blindSignatureHex}`);
+  const r = BigInt(`0x${rHex}`);
+  const rInverse = modInverse(r, n);
+  const signature = (blindSignature * rInverse) % n;
+  return signature.toString(16);
+}
 
-  const message = canonicalVoteMessage(voter_id, candidate_id, election_id);
-  const signature = nacl.sign.detached(new TextEncoder().encode(message), base64ToBytes(private_key_b64));
-  return bytesToBase64(signature);
+export async function verifyBlindVoteSignature(voteMessage, signatureHex, rsaPublicKey) {
+  const n = BigInt(rsaPublicKey.n);
+  const e = BigInt(rsaPublicKey.e);
+  const signature = BigInt(`0x${signatureHex}`);
+  const voteHash = (await sha256ToBigInt(voteMessage)) % n;
+  const targetHash = voteHash === 0n ? 1n : voteHash;
+  const recoveredHash = modPow(signature, e, n);
+  return recoveredHash === targetHash;
+}
+
+// Utility: parse nonce from a vote message JSON
+export function parseNonceFromVoteMessage(voteMessage) {
+  try {
+    const parsed = JSON.parse(voteMessage);
+    return parsed.nonce || "";
+  } catch {
+    return "";
+  }
 }
