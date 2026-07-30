@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import AdminView from "./AdminView";
 import VoterView from "./VoterView";
 import AdminLogin from "./AdminLogin";
+import TransparencyView from "./TransparencyView";
 
 const MODE_STORAGE_KEY = "truevote.mode";
 const ADMIN_TOKEN_STORAGE_KEY = "truevote.adminToken";
@@ -94,122 +95,135 @@ export default function App() {
     );
   }
 
-  return (
-    <div className="page-shell landing-theme">
-      <div className="page-frame landing-frame">
-        <header className="landing-header">
-          <div>
-            <p className="eyebrow">Blockchain voting</p>
-            <div className="landing-brand-row">
-              <h1>TrueVote</h1>
-              <span className="status-chip">Live network demo</span>
+  if (mode === "transparency") {
+    return (
+      <div className="page-shell landing-theme">
+        <div className="mx-auto max-w-7xl px-6 lg:px-8 py-4">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-widest text-blue-600 m-0">TrueVote</p>
+              <h1 className="text-2xl font-bold text-slate-900 mt-0.5 m-0">Transparency Console</h1>
             </div>
-            <p className="landing-subtitle">
-              Signed ballots, cluster mining, and peer replication presented as a clear product experience.
-            </p>
+            <button className="rounded-full px-4 py-2 text-sm bg-white/70 border border-slate-200/80 text-slate-900" onClick={() => setMode("select")}>Back to hub</button>
           </div>
+          <TransparencyView />
+        </div>
+      </div>
+    );
+  }
 
-          <div className="landing-nav">
-            <button className="ghost" onClick={() => setMode("admin")}>Governance</button>
-            <button className="ghost" onClick={() => setMode("voter")}>Voting</button>
+  return (
+    <div className="min-h-screen landing-theme">
+      <div className="mx-auto max-w-7xl px-6 lg:px-8">
+        <header className="flex items-center justify-between py-4">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">TrueVote</h1>
+            <p className="text-sm text-slate-500">Blockchain voting demo</p>
           </div>
+          <nav className="flex gap-2">
+            <button className="rounded-full px-4 py-2 text-sm bg-white/70 border border-slate-200/80 text-slate-900" onClick={() => setMode("admin")}>Governance</button>
+            <button className="rounded-full px-4 py-2 text-sm bg-white/70 border border-slate-200/80 text-slate-900" onClick={() => setMode("voter")}>Voting</button>
+            <button className="rounded-full px-4 py-2 text-sm bg-white/70 border border-slate-200/80 text-slate-900" onClick={() => setMode("transparency")}>Transparency</button>
+          </nav>
         </header>
 
-        <section className="hero-surface panel">
-          <div className="hero-copy-block">
-            <p className="eyebrow">Real-time election flow</p>
-            <h2>Vote, mine, and verify in one coherent interface.</h2>
-            <p className="hero-copy">
-              The admin console issues blind-vote invitations, voters submit anonymous blind-signed ballots, and the network races to mine and propagate the winning block.
+        <section className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-center py-8 relative z-10">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-widest text-blue-600">Anonymous blind-sign voting</p>
+            <h2 className="text-4xl sm:text-5xl lg:text-6xl font-bold leading-tight tracking-tighter mt-3 mb-4">Vote. Mine. Verify.</h2>
+            <p className="text-slate-500 leading-relaxed max-w-prose mb-2">
+              The admin console issues blind-vote invitations. Voters submit anonymous
+              blind-signed ballots. The network mines and propagates the winning block.
             </p>
-
-            <div className="landing-actions">
-              <button className="primary hero-button" onClick={() => setMode("admin")}>Open Governance Console</button>
-              <button className="secondary hero-button" onClick={() => setMode("voter")}>Open Voter Console</button>
-            </div>
-
-            <div className="hero-pills">
-              <span className="pill">Signed ballots</span>
-              <span className="pill">Cluster mining</span>
-              <span className="pill">Peer sync</span>
-              <span className="pill">Live results</span>
-            </div>
-
-            <div className="landing-metrics">
-              <div className="stat-card stat-card-compact">
-                <p className="stat-label">Workflow</p>
-                <p className="stat-value">Vote → Mempool → Mine</p>
-              </div>
-              <div className="stat-card stat-card-compact">
-                <p className="stat-label">Consensus</p>
-                <p className="stat-value">Winning chain wins</p>
-              </div>
-              <div className="stat-card stat-card-compact">
-                <p className="stat-label">Visibility</p>
-                <p className="stat-value">Blocks, hashes, peers</p>
-              </div>
+            <div className="flex gap-3 flex-wrap">
+              <button className="rounded-full px-6 py-3 text-sm font-medium text-white bg-gradient-to-r from-teal-600 to-blue-600 shadow-lg shadow-blue-600/20" onClick={() => setMode("admin")}>Governance Console</button>
+              <button className="rounded-full px-6 py-3 text-sm font-medium text-slate-900 bg-white/80 border border-slate-200/80" onClick={() => setMode("voter")}>Voter Console</button>
+              <button className="rounded-full px-6 py-3 text-sm font-medium text-slate-900 bg-white/80 border border-slate-200/80" onClick={() => setMode("transparency")}>Transparency Console</button>
             </div>
           </div>
-
-          <div className="hero-sidecard">
-            <div className="hero-network-card">
-              <p className="eyebrow">Live network</p>
-              <h2>Observe the block race</h2>
-              <p className="muted">
-                Votes broadcast into mempools, miners compete, and the winning block propagates to every node.
-              </p>
-              <div className="network-steps">
-                <div className="network-step">
-                  <span>01</span>
-                  <div>
-                    <strong>Broadcast</strong>
-                    <p>Pending votes are replicated to peers.</p>
-                  </div>
+          <div className="vis-panel">
+            <div className="vis-panel-header">
+              <span className="vis-ph-dot" />
+              <span className="vis-ph-dot" />
+              <span className="vis-ph-dot" />
+              <span className="vis-ph-label">live:blockchain</span>
+            </div>
+            <div className="vis-blocks">
+              <div className="vis-block">
+                <span className="vis-block-num">#21</span>
+                <div className="vis-block-info">
+                  <span className="vis-block-label">Block 0x4a1f…b3e2</span>
+                  <span className="vis-block-hash">Nonce: 0x0000…a9f4 · 12 txns</span>
                 </div>
-                <div className="network-step">
-                  <span>02</span>
-                  <div>
-                    <strong>Mine</strong>
-                    <p>Nodes race to solve the proof of work.</p>
-                  </div>
-                </div>
-                <div className="network-step">
-                  <span>03</span>
-                  <div>
-                    <strong>Sync</strong>
-                    <p>The first valid block updates every chain.</p>
-                  </div>
-                </div>
+                <span className="vis-block-status mined">mined</span>
               </div>
-              <div className="mini-grid landing-mini-grid">
-                <div>
-                  <p className="stat-label">Flow</p>
-                  <p className="stat-value">Vote → Mempool → Mine → Sync</p>
+              <div className="vis-block">
+                <span className="vis-block-num">#22</span>
+                <div className="vis-block-info">
+                  <span className="vis-block-label">Block 0x7c3d…f801</span>
+                  <span className="vis-block-hash">Nonce: 0x0000…b2e7 · 8 txns</span>
                 </div>
-                <div>
-                  <p className="stat-label">Consensus</p>
-                  <p className="stat-value">Chain wins</p>
+                <span className="vis-block-status mined">mined</span>
+              </div>
+              <div className="vis-block">
+                <span className="vis-block-num">#23</span>
+                <div className="vis-block-info">
+                  <span className="vis-block-label">Block 0x9e5a…4c3b</span>
+                  <span className="vis-block-hash">⧫ mining … 0x0000…1e</span>
                 </div>
+                <span className="vis-block-status mining">mining</span>
+              </div>
+              <div className="vis-block">
+                <span className="vis-block-num">#24</span>
+                <div className="vis-block-info">
+                  <span className="vis-block-label">Mempool</span>
+                  <span className="vis-block-hash">3 pending votes · 0xb8f…</span>
+                </div>
+                <span className="vis-block-status pending">pending</span>
               </div>
             </div>
           </div>
         </section>
 
-        <section className="feature-grid">
-          <article className="panel feature-card">
-            <p className="eyebrow">Governance</p>
-            <h2>Admin cockpit</h2>
-            <p className="muted">Prepare blind-registration invitations, inspect the chain, and control mining from one focused dashboard.</p>
+        <div className="relative w-screen ml-[calc(-50vw+50%)] px-6 lg:px-8 py-8 border-y border-slate-200/30">
+          <div className="max-w-7xl mx-auto flex items-center justify-center">
+            <div className="flex flex-col items-center gap-2">
+              <span className="size-13 rounded-full bg-gradient-to-br from-teal-600 to-blue-600 text-white flex items-center justify-center text-sm font-bold shadow-lg shadow-blue-600/20">01</span>
+              <span className="text-sm font-semibold">Vote</span>
+            </div>
+            <span className="w-16 h-0.5 bg-gradient-to-r from-blue-600 to-teal-600/20 mb-6" />
+            <div className="flex flex-col items-center gap-2">
+              <span className="size-13 rounded-full bg-gradient-to-br from-teal-600 to-blue-600 text-white flex items-center justify-center text-sm font-bold shadow-lg shadow-blue-600/20">02</span>
+              <span className="text-sm font-semibold">Mempool</span>
+            </div>
+            <span className="w-16 h-0.5 bg-gradient-to-r from-blue-600 to-teal-600/20 mb-6" />
+            <div className="flex flex-col items-center gap-2">
+              <span className="size-13 rounded-full bg-gradient-to-br from-teal-600 to-blue-600 text-white flex items-center justify-center text-sm font-bold shadow-lg shadow-blue-600/20">03</span>
+              <span className="text-sm font-semibold">Mine</span>
+            </div>
+            <span className="w-16 h-0.5 bg-gradient-to-r from-blue-600 to-teal-600/20 mb-6" />
+            <div className="flex flex-col items-center gap-2">
+              <span className="size-13 rounded-full bg-gradient-to-br from-teal-600 to-blue-600 text-white flex items-center justify-center text-sm font-bold shadow-lg shadow-blue-600/20">04</span>
+              <span className="text-sm font-semibold">Sync</span>
+            </div>
+          </div>
+        </div>
+
+        <section className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6 relative z-10">
+          <article className="p-6 rounded-2xl bg-white/70 backdrop-blur-md border border-slate-200/10 flex flex-col gap-2">
+            <span className="text-xs font-extrabold text-blue-600 tracking-widest">01</span>
+            <h3 className="text-lg font-semibold">Governance</h3>
+            <p className="text-sm text-slate-500 leading-relaxed">Prepare blind-registration invitations, inspect the chain, and control mining from one dashboard.</p>
           </article>
-          <article className="panel feature-card">
-            <p className="eyebrow">Voting</p>
-            <h2>Anonymous voting</h2>
-            <p className="muted">Blind-sign your ballot locally, get admin authorization, and submit anonymously with instant feedback.</p>
+          <article className="p-6 rounded-2xl bg-white/70 backdrop-blur-md border border-slate-200/10 flex flex-col gap-2">
+            <span className="text-xs font-extrabold text-blue-600 tracking-widest">02</span>
+            <h3 className="text-lg font-semibold">Voting</h3>
+            <p className="text-sm text-slate-500 leading-relaxed">Blind-sign your ballot locally, get admin authorization, and submit anonymously with instant feedback.</p>
           </article>
-          <article className="panel feature-card">
-            <p className="eyebrow">Transparency</p>
-            <h2>Readable mining state</h2>
-            <p className="muted">Track blocks, nonces, hashes, and pending votes as the network converges.</p>
+          <article className="p-6 rounded-2xl bg-white/70 backdrop-blur-md border border-slate-200/10 flex flex-col gap-2">
+            <span className="text-xs font-extrabold text-blue-600 tracking-widest">03</span>
+            <h3 className="text-lg font-semibold">Transparency</h3>
+            <p className="text-sm text-slate-500 leading-relaxed">Track blocks, nonces, hashes, and pending votes as the network converges in real time.</p>
           </article>
         </section>
       </div>

@@ -3,7 +3,6 @@ import {
   castVote,
   DEFAULT_BASE_URL,
   fetchChain,
-  fetchElectionResults,
   mineCluster,
   fetchBlindPublicKey,
   requestBlindSignature,
@@ -15,72 +14,6 @@ import {
   verifyBlindVoteSignature,
   parseNonceFromVoteMessage,
 } from "./wallet";
-
-function ResultsSection({ baseUrl }) {
-  const [electionId, setElectionId] = useState("student-union-2026");
-  const [results, setResults] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-
-  const loadResults = async () => {
-    try {
-      setLoading(true);
-      setError("");
-      const data = await fetchElectionResults(baseUrl, electionId);
-      setResults(data.results || {});
-    } catch (err) {
-      setError(`Failed to load results: ${err.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="panel">
-      <h3>Election Results</h3>
-      <div className="form">
-        <label>
-          Election ID
-          <input
-            type="text"
-            value={electionId}
-            onChange={(e) => setElectionId(e.target.value)}
-            placeholder="student-union-2026"
-          />
-        </label>
-        <button onClick={loadResults} disabled={loading}>
-          {loading ? "Loading..." : "View Results"}
-        </button>
-      </div>
-
-      {error && <div className="banner banner-error">{error}</div>}
-
-      {results && Object.keys(results).length > 0 ? (
-        <ul className="result-list">
-          {Object.entries(results).map(([candidate, votes]) => {
-            const total = Object.values(results).reduce((a, b) => a + b, 0);
-            const percent = total > 0 ? Math.round((votes / total) * 100) : 0;
-            return (
-              <li key={candidate} className="result-item">
-                <div className="result-header">
-                  <span>{candidate}</span>
-                  <strong>
-                    {votes} vote{votes === 1 ? "" : "s"} ({percent}%)
-                  </strong>
-                </div>
-                <div className="result-track">
-                  <div className="result-fill" style={{ width: `${percent}%` }} />
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      ) : (
-        results && <p className="muted">No votes counted yet for this election.</p>
-      )}
-    </div>
-  );
-}
 
 function BlindVoteSection({ baseUrl }) {
   const [electionId, setElectionId] = useState("student-union-2026");
@@ -145,28 +78,23 @@ function BlindVoteSection({ baseUrl }) {
       setMessage("");
       setError("");
 
-      // Step 1: Create blind vote message with random nonce
       const voteMessage = createBlindVoteMessage(candidateId, electionId);
       const nonce = parseNonceFromVoteMessage(voteMessage);
 
-      // Step 2: Blind the vote hash
       const blindRequest = await createBlindVoteRequest(voteMessage, blindPublicKey);
 
-      // Step 3: Request admin blind signature
       const signResponse = await requestBlindSignature(baseUrl, {
         registration_code: registrationCode.trim(),
         election_id: electionId.trim() || undefined,
         blinded_hash: `0x${blindRequest.blinded_hash_hex}`,
       });
 
-      // Step 4: Unblind the signature
       const unblindedSignature = unblindVoteSignature(
         signResponse.blind_signature,
         blindRequest.r_hex,
         blindPublicKey
       );
 
-      // Step 5: Verify locally (optional — catches tampering early)
       const isValid = await verifyBlindVoteSignature(
         voteMessage,
         unblindedSignature,
@@ -177,7 +105,6 @@ function BlindVoteSection({ baseUrl }) {
         throw new Error("Blind signature verification failed locally");
       }
 
-      // Step 6: Submit anonymous vote
       await castVote(baseUrl, {
         candidate_id: candidateId.trim(),
         election_id: electionId.trim(),
@@ -185,7 +112,7 @@ function BlindVoteSection({ baseUrl }) {
         signature: `0x${unblindedSignature}`,
       });
 
-      setMessage(`✓ Anonymous vote for ${candidateId} in ${electionId} submitted!`);
+      setMessage(`\u2713 Anonymous vote for ${candidateId} in ${electionId} submitted!`);
       setCandidateId("");
       setRegistrationCode("");
     } catch (err) {
@@ -196,54 +123,75 @@ function BlindVoteSection({ baseUrl }) {
   };
 
   return (
-    <div className="panel">
-      <h3>Cast Your Anonymous Vote</h3>
-      <p className="muted">
-        Your vote is blinded before sending to the admin, then unblinded and submitted
-        anonymously. No identity is attached to the on-chain vote.
-      </p>
+    <div className="p-5 rounded-2xl bg-white/70 border border-slate-200/60 backdrop-blur-md flex flex-col gap-4">
+      <div>
+        <h3 className="text-base font-bold text-slate-900 m-0">Cast Your Anonymous Vote</h3>
+        <p className="text-xs text-slate-500 mt-0.5">
+          Your vote is blinded before sending to the admin, then unblinded and submitted
+          anonymously. No identity is attached to the on-chain vote.
+        </p>
+      </div>
 
-      {keyStatus && <div className="notice">{keyStatus}</div>}
+      {keyStatus && (
+        <div className="p-3 rounded-xl bg-amber-50/80 border border-amber-200 text-amber-800 text-sm">
+          {keyStatus}
+        </div>
+      )}
 
-      <form onSubmit={handleBlindVote} className="form">
+      <form onSubmit={handleBlindVote} className="flex flex-col gap-3">
         <label>
-          Registration Invitation
+          <span className="text-xs text-slate-500 font-medium block mb-1">Registration Invitation</span>
           <input
             type="text"
             value={registrationCode}
             onChange={(e) => setRegistrationCode(e.target.value)}
             placeholder="Paste invitation from admin"
             disabled={loading}
+            className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white/90 text-sm text-slate-900 focus:outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100 disabled:opacity-50"
           />
         </label>
         <label>
-          Election ID
+          <span className="text-xs text-slate-500 font-medium block mb-1">Election ID</span>
           <input
             type="text"
             value={electionId}
             onChange={(e) => setElectionId(e.target.value)}
             placeholder="student-union-2026"
             disabled={loading}
+            className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white/90 text-sm text-slate-900 focus:outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100 disabled:opacity-50"
           />
         </label>
         <label>
-          Candidate Name
+          <span className="text-xs text-slate-500 font-medium block mb-1">Candidate Name</span>
           <input
             type="text"
             value={candidateId}
             onChange={(e) => setCandidateId(e.target.value)}
             placeholder="e.g., Alice"
             disabled={loading}
+            className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white/90 text-sm text-slate-900 focus:outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100 disabled:opacity-50"
           />
         </label>
 
-        <button type="submit" disabled={loading || !blindPublicKey}>
+        <button
+          type="submit"
+          disabled={loading || !blindPublicKey}
+          className="w-full px-5 py-2.5 rounded-full text-sm font-medium text-white bg-gradient-to-r from-teal-600 to-blue-600 shadow-lg shadow-blue-600/20 hover:opacity-90 transition-opacity disabled:opacity-50 mt-1"
+        >
           {loading ? "Submitting..." : "Submit Anonymous Vote"}
         </button>
       </form>
 
-      {message && <div className="banner banner-success">{message}</div>}
-      {error && <div className="banner banner-error">{error}</div>}
+      {message && (
+        <div className="p-3 rounded-xl bg-emerald-50/80 border border-emerald-200 text-emerald-700 text-sm font-medium">
+          {message}
+        </div>
+      )}
+      {error && (
+        <div className="p-3 rounded-xl bg-red-50/80 border border-red-200 text-red-700 text-sm font-medium">
+          {error}
+        </div>
+      )}
     </div>
   );
 }
@@ -299,72 +247,66 @@ export default function VoterView() {
   };
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar panel">
+    <div className="flex flex-col lg:flex-row gap-4">
+      <aside className="w-full lg:w-64 shrink-0 p-5 rounded-2xl bg-white/70 border border-slate-200/60 backdrop-blur-md lg:self-start lg:sticky lg:top-0 flex flex-col gap-4">
         <div>
-          <p className="eyebrow eyebrow-dark">Voting</p>
-          <h2>Cast Your Vote</h2>
-          <p className="muted">
+          <p className="text-xs font-bold uppercase tracking-wider text-blue-600 m-0">Voting</p>
+          <h2 className="text-lg font-bold text-slate-900 mt-1 m-0">Cast Your Vote</h2>
+          <p className="text-xs text-slate-500 mt-1">
             Blind-sign anonymous voting. No wallet or identity required.
           </p>
         </div>
 
-        <div className="node-config">
-          <label className="wallet-label">Node URL</label>
+        <div>
+          <label className="text-xs font-medium text-slate-500 mb-1.5 block">Node URL</label>
           <input
             type="text"
             value={baseUrl}
             onChange={(e) => setBaseUrl(e.target.value)}
             placeholder="http://127.0.0.1:8001"
+            className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white/90 text-sm text-slate-900 focus:outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
           />
-          <div style={{ marginTop: "0.5rem" }}>
-            <button onClick={handleClusterMine} disabled={mining}>
-              {mining ? "Mining…" : "Mine (cluster)"}
-            </button>
-            {miningInfo && (
-              <div style={{ marginTop: "0.5rem" }}>
-                <small>
-                  {miningInfo.status === "starting" && "Starting cluster mine..."}
-                  {miningInfo.status === "mining" && `Mining started — peers: ${JSON.stringify(miningInfo.response?.peers || {})}`}
-                  {miningInfo.status === "finished" && `Done in ${Math.round((miningInfo.elapsed_ms||0)/1000)}s`}
-                  {miningInfo.status === "error" && `Error: ${miningInfo.error}`}
-                </small>
-              </div>
-            )}
-          </div>
+        </div>
+
+        <div>
+          <button
+            onClick={handleClusterMine}
+            disabled={mining}
+            className="w-full px-4 py-2 rounded-full text-sm font-medium text-white bg-gradient-to-r from-teal-600 to-blue-600 shadow-lg shadow-blue-600/20 hover:opacity-90 transition-opacity disabled:opacity-50"
+          >
+            {mining ? "Mining\u2026" : "Mine (cluster)"}
+          </button>
+          {miningInfo && (
+            <div className="mt-2">
+              <p className="text-xs text-slate-500 m-0">
+                {miningInfo.status === "starting" && "Starting cluster mine..."}
+                {miningInfo.status === "mining" && `Mining started \u2014 peers: ${JSON.stringify(miningInfo.response?.peers || {})}`}
+                {miningInfo.status === "finished" && `Done in ${Math.round((miningInfo.elapsed_ms||0)/1000)}s`}
+                {miningInfo.status === "error" && `Error: ${miningInfo.error}`}
+              </p>
+            </div>
+          )}
         </div>
 
         {chainData && (
-          <div style={{ marginTop: "1rem" }}>
-            <p className="stat-label">Network Status</p>
-            <div className="mini-grid">
-              <div>
-                <p className="stat-label">Chain Length</p>
-                <p className="stat-value">{chainData.chain?.length || 0}</p>
+          <div className="flex flex-col gap-2">
+            <p className="text-xs font-medium text-slate-500 uppercase tracking-wider m-0">Network Status</p>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="p-3 rounded-xl bg-white/80 border border-slate-200/60">
+                <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wider m-0">Chain Length</p>
+                <p className="text-lg font-bold text-slate-900 mt-0.5 m-0">{chainData.chain?.length || 0}</p>
               </div>
-              <div>
-                <p className="stat-label">Pending Votes</p>
-                <p className="stat-value">{chainData.pending_votes || 0}</p>
+              <div className="p-3 rounded-xl bg-white/80 border border-slate-200/60">
+                <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wider m-0">Pending Votes</p>
+                <p className="text-lg font-bold text-slate-900 mt-0.5 m-0">{chainData.pending_votes || 0}</p>
               </div>
             </div>
           </div>
         )}
       </aside>
 
-      <div className="content-shell">
-        <div className="topbar">
-          <div>
-            <h1>Voting Console</h1>
-            <p className="subtitle">Blind-signature anonymous voting</p>
-          </div>
-        </div>
-
+      <div className="flex-1 min-w-0 flex flex-col gap-4">
         <BlindVoteSection baseUrl={baseUrl} />
-
-        <div className="view-grid">
-          <div />
-          <ResultsSection baseUrl={baseUrl} />
-        </div>
       </div>
     </div>
   );
