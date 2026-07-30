@@ -100,6 +100,10 @@ export async function fetchElectionResults(baseUrl, electionId) {
   return request(baseUrl, `/elections/${encodeURIComponent(electionId)}/results`);
 }
 
+export async function revalidateChain(baseUrl = DEFAULT_BASE_URL) {
+  return request(baseUrl, "/chain/revalidate");
+}
+
 export async function resolveConsensus(baseUrl) {
   return request(baseUrl, "/nodes/resolve");
 }

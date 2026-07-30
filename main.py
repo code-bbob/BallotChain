@@ -801,6 +801,10 @@ def mine_remote(payload: RemoteMineIn) -> dict[str, Any]:
 
 
 def _coordinate_cluster_mining(limit: int = 100, difficulty: int | None = None) -> dict[str, Any]:
+    persisted = storage.load()
+    if persisted and "pending_transactions" in persisted:
+        blockchain.pending_transactions = list(persisted["pending_transactions"])
+
     if not blockchain.pending_transactions:
         return {"message": "No pending transactions to mine", "total": 0}
 
@@ -900,11 +904,30 @@ def receive_block(block_payload: BlockIn) -> dict[str, Any]:
 
     incoming_block = Block.from_dict(block_payload.model_dump())
 
-    if incoming_block.index <= blockchain.latest_block.index:
+    if incoming_block.index < blockchain.latest_block.index:
         return {
             "message": "Block already known or stale",
             "index": incoming_block.index,
         }
+
+    if incoming_block.index == blockchain.latest_block.index:
+        if incoming_block.hash == blockchain.latest_block.hash:
+            return {
+                "message": "Block already known",
+                "index": incoming_block.index,
+            }
+        # Same index but different hash = tampered block
+        _log_node_event(
+            logging.WARNING,
+            "Tampered block detected: index=%d local_hash=%s received_hash=%s",
+            incoming_block.index,
+            blockchain.latest_block.hash[:16],
+            incoming_block.hash[:16],
+        )
+        raise HTTPException(
+            status_code=400,
+            detail=f"Rejected block: index {incoming_block.index} already exists with a different hash (possible tampering)",
+        )
 
     try:
         blockchain.add_block(incoming_block)
@@ -981,7 +1004,17 @@ def register_nodes(payload: NodeRegistrationIn) -> dict[str, Any]:
 @app.get("/nodes/resolve")
 def resolve_nodes() -> dict[str, Any]:
     _log_node_event(logging.INFO, "Consensus resolution requested")
+
     longest_chain: list[Block] | None = None
+    disk_valid = True
+    persisted_on_disk = storage.load()
+    if persisted_on_disk:
+        try:
+            disk_blockchain = Blockchain.from_dict_unvalidated(persisted_on_disk)
+            disk_valid = disk_blockchain.validate_chain_detailed()["valid"]
+        except Exception:
+            disk_valid = False
+
     max_length = len(blockchain.chain)
 
     for node in blockchain.nodes:
@@ -996,7 +1029,10 @@ def resolve_nodes() -> dict[str, Any]:
         remote_chain_raw = payload.get("chain", [])
         remote_chain = [Block.from_dict(item) for item in remote_chain_raw]
 
-        if remote_length > max_length and blockchain.is_chain_valid(remote_chain):
+        if not blockchain.is_chain_valid(remote_chain):
+            continue
+
+        if remote_length > max_length or (not disk_valid and remote_length >= max_length):
             max_length = remote_length
             longest_chain = remote_chain
 
@@ -1014,6 +1050,37 @@ def resolve_nodes() -> dict[str, Any]:
         "message": "Current chain is authoritative",
         "length": len(blockchain.chain),
         "chain": [block.to_dict() for block in blockchain.chain],
+    }
+
+
+@app.post("/chain/revalidate")
+@app.get("/chain/revalidate")
+def revalidate_chain() -> dict[str, Any]:
+    """Read the persisted data file from disk and validate the full chain."""
+    persisted_on_disk = storage.load()
+    if not persisted_on_disk:
+        return {"status": "invalid", "error": "no persisted chain found", "chain_length": 0, "blocks": []}
+
+    try:
+        disk_blockchain = Blockchain.from_dict_unvalidated(persisted_on_disk)
+        result = disk_blockchain.validate_chain_detailed()
+    except Exception as err:
+        return {"status": "invalid", "error": str(err), "chain_length": 0, "blocks": []}
+
+    status = "valid" if result["valid"] else "invalid"
+
+    _log_node_event(
+        logging.INFO if result["valid"] else logging.WARNING,
+        "Chain revalidation: status=%s blocks=%d",
+        status,
+        len(disk_blockchain.chain),
+    )
+
+    return {
+        "status": status,
+        "chain_length": len(disk_blockchain.chain),
+        "difficulty": disk_blockchain.difficulty,
+        **result,
     }
 
 

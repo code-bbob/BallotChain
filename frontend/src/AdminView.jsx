@@ -6,6 +6,8 @@ import {
   mineCluster,
   broadcastToNetwork,
   issueRegistrationCode,
+  revalidateChain,
+  resolveConsensus,
 } from "./api";
 
 function StatCard({ label, value, subtext }) {
@@ -105,6 +107,8 @@ export default function AdminView({ adminToken: initialAdminToken = "", setAdmin
   const [issueExpiresMinutes, setIssueExpiresMinutes] = useState("60");
   const [issueElectionId, setIssueElectionId] = useState("student-union-2026");
   const [issueCodeResult, setIssueCodeResult] = useState("");
+  const [revalidationData, setRevalidationData] = useState(null);
+  const [revalidationLoading, setRevalidationLoading] = useState(false);
 
   const networkStats = useMemo(() => {
     if (!chainData) {
@@ -217,6 +221,40 @@ export default function AdminView({ adminToken: initialAdminToken = "", setAdmin
     }
   };
 
+  const handleRevalidate = async () => {
+    try {
+      setRevalidationLoading(true);
+      setActionError("");
+      setActionMessage("");
+      const result = await revalidateChain(baseUrl);
+      setRevalidationData(result);
+      setActionMessage(
+        result.status === "valid"
+          ? `Chain is valid — ${result.chain_length} blocks verified`
+          : `Chain INVALID at block ${result.failed_at_block ?? "?"}: ${result.error}`
+      );
+    } catch (err) {
+      setActionError(`Revalidation failed: ${err.message}`);
+    } finally {
+      setRevalidationLoading(false);
+    }
+  };
+
+  const handleResolveConsensus = async () => {
+    try {
+      setLoading(true);
+      setActionError("");
+      setActionMessage("");
+      const result = await resolveConsensus(baseUrl);
+      setActionMessage(result.message || "Consensus resolved");
+      await loadChainData();
+    } catch (err) {
+      setActionError(`Consensus resolution failed: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadChainData();
     return () => {};
@@ -310,6 +348,50 @@ export default function AdminView({ adminToken: initialAdminToken = "", setAdmin
             <p className="notice">
               Mining collects pending votes into a block. Broadcasting shares the latest blocks with peers.
             </p>
+          </div>
+
+          <div className="panel">
+            <h3>Chain Integrity</h3>
+            <p className="muted">Revalidate the persisted chain or resolve consensus from peers.</p>
+            <button className="primary" onClick={handleRevalidate} disabled={revalidationLoading}>
+              {revalidationLoading ? "Validating..." : "Revalidate Chain"}
+            </button>
+            <button className="secondary stack-action" onClick={handleResolveConsensus} disabled={loading}>
+              Resolve Consensus
+            </button>
+
+            {revalidationData && (
+              <div style={{ marginTop: "0.75rem" }}>
+                <div
+                  className="notice"
+                  style={{
+                    borderLeft: `3px solid ${revalidationData.status === "valid" ? "#22c55e" : "#ef4444"}`,
+                    paddingLeft: "0.5rem",
+                  }}
+                >
+                  <strong>
+                    {revalidationData.status === "valid" ? "Chain valid" : `Chain INVALID — ${revalidationData.error}`}
+                  </strong>
+                  <p className="muted" style={{ margin: "0.25rem 0 0" }}>
+                    {revalidationData.chain_length} blocks
+                  </p>
+                </div>
+
+                {revalidationData.blocks && revalidationData.blocks.some((b) => !b.valid) && (
+                  <div style={{ marginTop: "0.5rem" }}>
+                    {revalidationData.blocks.filter((b) => !b.valid).map((b) => (
+                      <div
+                        key={b.index}
+                        style={{ fontSize: "0.8rem", padding: "0.25rem 0" }}
+                      >
+                        <span style={{ fontWeight: 600, color: "#ef4444" }}>Block #{b.index}:</span>{" "}
+                        <span style={{ color: "#ef4444" }}>{b.errors?.join('; ')}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="panel">

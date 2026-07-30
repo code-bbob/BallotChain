@@ -290,53 +290,98 @@ class Blockchain:
         self.nodes.add(normalized.rstrip("/"))
 
     def is_chain_valid(self, chain: list[Block] | None = None) -> bool:
+        result = self.validate_chain_detailed(chain)
+        return result["valid"]
+
+    def validate_chain_detailed(self, chain: list[Block] | None = None) -> dict[str, Any]:
         chain_to_check = chain if chain is not None else self.chain
+        blocks: list[dict[str, Any]] = []
 
         if not chain_to_check:
-            return False
+            return {"valid": False, "error": "chain is empty", "blocks": []}
 
         genesis = chain_to_check[0]
+        genesis_errors: list[str] = []
         if genesis.hash != genesis.calculate_hash():
-            return False
+            genesis_errors.append("genesis hash does not match calculated hash")
         if genesis.previous_hash != "0":
-            return False
+            genesis_errors.append("genesis previous_hash is not '0'")
+
+        blocks.append({
+            "index": genesis.index,
+            "hash": genesis.hash,
+            "valid": len(genesis_errors) == 0,
+            "errors": genesis_errors,
+        })
+
+        if genesis_errors:
+            return {"valid": False, "error": genesis_errors[0], "blocks": blocks}
 
         seen_nonces: set[str] = set()
 
         for index in range(1, len(chain_to_check)):
             current = chain_to_check[index]
             previous = chain_to_check[index - 1]
+            block_errors: list[str] = []
 
             if current.previous_hash != previous.hash:
-                return False
+                block_errors.append(
+                    f"previous_hash mismatch: expected {previous.hash[:16]}... got {current.previous_hash[:16]}..."
+                )
 
-            if current.hash != current.calculate_hash():
-                return False
+            expected_hash = current.calculate_hash()
+            if current.hash != expected_hash:
+                block_errors.append(
+                    f"block hash invalid: stored {current.hash[:16]}... != calculated {expected_hash[:16]}..."
+                )
 
             if not current.hash.startswith("0" * self.difficulty):
-                return False
+                block_errors.append(
+                    f"proof-of-work invalid: hash {current.hash[:16]}... does not start with {'0' * self.difficulty}"
+                )
 
             seen_nonces_in_block: set[str] = set()
+            vote_errors: list[str] = []
 
-            for vote in current.transactions:
+            for tx_idx, vote in enumerate(current.transactions):
                 if not isinstance(vote, dict):
-                    return False
+                    vote_errors.append(f"vote[{tx_idx}]: malformed (not a dict)")
+                    continue
 
                 try:
                     _, _, nonce = self._validate_vote_record(vote)
-                except ValueError:
-                    return False
+                except ValueError as err:
+                    vote_errors.append(f"vote[{tx_idx}]: {err}")
+                    continue
 
                 if nonce in seen_nonces_in_block:
-                    return False
-
+                    vote_errors.append(f"vote[{tx_idx}]: duplicate nonce in block")
                 if nonce in seen_nonces:
-                    return False
+                    vote_errors.append(f"vote[{tx_idx}]: nonce already present in earlier block")
 
                 seen_nonces_in_block.add(nonce)
                 seen_nonces.add(nonce)
 
-        return True
+            if vote_errors:
+                block_errors.extend(vote_errors)
+
+            blocks.append({
+                "index": current.index,
+                "hash": current.hash,
+                "transactions": len(current.transactions),
+                "valid": len(block_errors) == 0,
+                "errors": block_errors,
+            })
+
+            if block_errors:
+                return {
+                    "valid": False,
+                    "error": block_errors[0],
+                    "failed_at_block": current.index,
+                    "blocks": blocks,
+                }
+
+        return {"valid": True, "error": None, "blocks": blocks}
 
     def tally_votes(
         self,
@@ -404,5 +449,34 @@ class Blockchain:
 
         if not instance.is_chain_valid(instance.chain):
             raise ValueError("persisted chain is invalid")
+
+        return instance
+
+    @classmethod
+    def from_dict_unvalidated(cls, data: dict[str, Any]) -> "Blockchain":
+        """Parse a persisted chain without pre-validating it.
+
+        Useful for revalidation endpoints that need to report detailed
+        per-block errors on a potentially tampered on-disk chain.
+        """
+        chain_data = data.get("chain", [])
+        parsed_chain = [Block.from_dict(item) for item in chain_data]
+
+        instance = cls(
+            difficulty=int(data.get("difficulty", 3)),
+            chain=parsed_chain,
+            pending_transactions=list(data.get("pending_transactions", [])),
+            nodes=set(data.get("nodes", [])),
+            admin_n=int(data.get("admin_n", 0)),
+            admin_e=int(data.get("admin_e", 0)),
+        )
+
+        raw_used = data.get("used_nonces", [])
+        if isinstance(raw_used, (list, tuple, set)):
+            instance.used_nonces = {str(item).strip() for item in raw_used if str(item).strip()}
+
+        raw_codes = dict(data.get("registration_codes", {}))
+        if raw_codes:
+            instance.registration_codes = raw_codes
 
         return instance
