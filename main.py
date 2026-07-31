@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import hashlib
 from typing import Any
 
 import requests
@@ -56,6 +57,15 @@ class BlindSignIn(BaseModel):
 class RegistrationCodeIssueIn(BaseModel):
     election_id: str | None = None
     expires_in_minutes: int = Field(default=60, ge=1, le=10080)
+
+
+class RegistrationCodeSyncIn(BaseModel):
+    code_hash: str = Field(min_length=1)
+    entry: dict[str, Any] = Field(default_factory=dict)
+
+
+class RegistrationCodeConsumeIn(BaseModel):
+    code_hash: str = Field(min_length=1)
 
 
 class AdminLoginIn(BaseModel):
@@ -117,6 +127,83 @@ def _normalize_multiline_secret(value: str) -> str:
     return value.replace("\\n", "\n").strip()
 
 
+# --- Deterministic admin RSA key (dev fallback) -------------------------------
+# When no ADMIN_RSA_PRIVATE_KEY_PEM is provided, each node derives the same key
+# from the shared cluster secret (JWT_SECRET/ADMIN_TOKEN) so that every node
+# signs votes with the same private key and verifies each other's votes without
+# any extra configuration. Exports a "priv" seed label to keep p/q distinct.
+_KEYGEN_SMALL_PRIMES = tuple(
+    p for p in [
+        2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53,
+        59, 61, 67, 71, 73, 79, 83, 89, 97,
+    ]
+)
+_KEYGEN_MR_BASES = (2, 3, 5, 7, 11, 13)
+
+
+def _is_probable_prime(n: int) -> bool:
+    if n < 2:
+        return False
+    for p in _KEYGEN_SMALL_PRIMES:
+        if n % p == 0:
+            return n == p
+    d, s = n - 1, 0
+    while d % 2 == 0:
+        s += 1
+        d //= 2
+    for a in _KEYGEN_MR_BASES:
+        if a >= n:
+            continue
+        x = pow(a, d, n)
+        if x == 1 or x == n - 1:
+            continue
+        for _ in range(s - 1):
+            x = (x * x) % n
+            if x == n - 1:
+                break
+        else:
+            return False
+    return True
+
+
+def _deterministic_prime(seed: str, label: str, bits: int = 1024) -> int:
+    counter = 0
+    while True:
+        digest = hashlib.sha256(f"{seed}:{label}:{counter}".encode("utf-8")).digest()
+        while len(digest) < bits // 8:
+            digest += hashlib.sha256(digest).digest()
+        candidate = int.from_bytes(digest, "big") & ((1 << bits) - 1)
+        candidate |= (1 << (bits - 1)) | 1  # top bit set + odd
+        if _is_probable_prime(candidate):
+            return candidate
+        counter += 1
+
+
+def _derive_admin_rsa_key(seed: str) -> rsa.RSAPrivateKey:
+    p = _deterministic_prime(seed, "priv-p")
+    counter = 0
+    while True:
+        q = _deterministic_prime(seed, f"priv-q-{counter}")
+        if q != p:
+            break
+        counter += 1
+
+    n = p * q
+    e = 65537
+    phi = (p - 1) * (q - 1)
+    d = pow(e, -1, phi)
+    numbers = rsa.RSAPrivateNumbers(
+        p=p,
+        q=q,
+        d=d,
+        dmp1=d % (p - 1),
+        dmq1=d % (q - 1),
+        iqmp=pow(q, -1, p),
+        public_numbers=rsa.RSAPublicNumbers(e, n),
+    )
+    return numbers.private_key()
+
+
 def _load_admin_rsa_private_key() -> rsa.RSAPrivateKey:
     pem_from_env = _normalize_multiline_secret(os.getenv("ADMIN_RSA_PRIVATE_KEY_PEM", ""))
     if pem_from_env:
@@ -125,8 +212,8 @@ def _load_admin_rsa_private_key() -> rsa.RSAPrivateKey:
             raise ValueError("ADMIN_RSA_PRIVATE_KEY_PEM must contain an RSA private key")
         return key
 
-    # Dev-friendly fallback: ephemeral key generated at startup.
-    return rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    # Dev-friendly fallback: deterministic key shared across all cluster nodes.
+    return _derive_admin_rsa_key(JWT_SECRET or "dev-secret")
 
 
 ADMIN_RSA_PRIVATE_KEY = _load_admin_rsa_private_key()
@@ -366,6 +453,76 @@ def broadcast_transaction_to_peers(vote: dict[str, Any]) -> dict[str, int]:
     }
 
 
+def broadcast_registration_code_to_peers(code_hash: str, entry: dict[str, Any]) -> dict[str, int]:
+    """Push a freshly issued registration code to every peer node."""
+    accepted = 0
+    rejected = 0
+    unreachable = 0
+
+    for node in blockchain.nodes:
+        try:
+            response = requests.post(
+                f"{node}/internal/registration-codes/receive",
+                json={"code_hash": code_hash, "entry": entry},
+                timeout=5,
+            )
+            if response.status_code == 200:
+                accepted += 1
+                _log_node_event(logging.INFO, "Registration code broadcast accepted by %s", node)
+            else:
+                rejected += 1
+                _log_node_event(
+                    logging.WARNING,
+                    "Registration code broadcast rejected by %s: %s",
+                    node,
+                    response.text[:200],
+                )
+        except requests.RequestException:
+            unreachable += 1
+            _log_node_event(logging.WARNING, "Registration code broadcast unreachable for %s", node)
+
+    return {
+        "accepted": accepted,
+        "rejected": rejected,
+        "unreachable": unreachable,
+    }
+
+
+def broadcast_registration_code_consumed_to_peers(code_hash: str) -> dict[str, int]:
+    """Tell every peer node that a registration code has been used up."""
+    accepted = 0
+    rejected = 0
+    unreachable = 0
+
+    for node in blockchain.nodes:
+        try:
+            response = requests.post(
+                f"{node}/internal/registration-codes/consume",
+                json={"code_hash": code_hash},
+                timeout=5,
+            )
+            if response.status_code == 200:
+                accepted += 1
+                _log_node_event(logging.INFO, "Registration code consumption accepted by %s", node)
+            else:
+                rejected += 1
+                _log_node_event(
+                    logging.WARNING,
+                    "Registration code consumption rejected by %s: %s",
+                    node,
+                    response.text[:200],
+                )
+        except requests.RequestException:
+            unreachable += 1
+            _log_node_event(logging.WARNING, "Registration code consumption unreachable for %s", node)
+
+    return {
+        "accepted": accepted,
+        "rejected": rejected,
+        "unreachable": unreachable,
+    }
+
+
 # Mining coordination primitives for this node
 miner_thread: threading.Thread | None = None
 miner_stop_event = threading.Event()
@@ -578,6 +735,15 @@ def get_chain() -> dict[str, Any]:
     }
 
 
+@app.get("/state/export")
+def export_node_state() -> dict[str, Any]:
+    """Return the raw persisted state exactly as stored on disk (e.g. node1.json)."""
+    persisted_on_disk = storage.load()
+    if persisted_on_disk is None:
+        raise HTTPException(status_code=404, detail="No persisted state found on disk")
+    return persisted_on_disk
+
+
 @app.post("/voters/codes/issue")
 def issue_registration_code(
     payload: RegistrationCodeIssueIn,
@@ -592,9 +758,47 @@ def issue_registration_code(
         raise HTTPException(status_code=400, detail=str(error)) from error
 
     persist_state()
+
+    code_hash = blockchain._registration_code_hash(result["registration_code"])
+    entry: dict[str, Any] = {
+        "issued_at": result["issued_at"],
+        "expires_at": result["expires_at"],
+    }
+    if result.get("election_id"):
+        entry["election_id"] = result["election_id"]
+
+    broadcast_result = broadcast_registration_code_to_peers(code_hash, entry)
+
     return {
-        "message": "Registration code issued",
+        "message": "Registration code issued and shared with the cluster",
+        "broadcast": broadcast_result,
         **result,
+    }
+
+
+@app.post("/internal/registration-codes/receive")
+def receive_registration_code(payload: RegistrationCodeSyncIn) -> dict[str, Any]:
+    """Internal: accept a registration code broadcast by a peer node."""
+    code_hash = str(payload.code_hash).strip()
+    if code_hash:
+        blockchain.registration_codes[code_hash] = dict(payload.entry or {})
+        persist_state()
+        _log_node_event(logging.INFO, "Registration code received from peer (hash=%s...)", code_hash[:16])
+    return {"message": "Registration code stored", "synced": True}
+
+
+@app.post("/internal/registration-codes/consume")
+def consume_registration_code(payload: RegistrationCodeConsumeIn) -> dict[str, Any]:
+    """Internal: mark a registration code as used (broadcast by a peer node)."""
+    code_hash = str(payload.code_hash).strip()
+    removed = blockchain.registration_codes.pop(code_hash, None) if code_hash else None
+    if removed is not None:
+        persist_state()
+        _log_node_event(logging.INFO, "Registration code consumed by peer (hash=%s...)", code_hash[:16])
+    return {
+        "message": "Registration code consumed",
+        "removed": removed is not None,
+        "synced": True,
     }
 
 
@@ -656,10 +860,15 @@ def blind_sign_registration(payload: BlindSignIn) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
     persist_state()
+
+    code_hash = blockchain._registration_code_hash(payload.registration_code)
+    broadcast_result = broadcast_registration_code_consumed_to_peers(code_hash)
+
     return {
         "message": "Blinded hash signed successfully",
         "election_id": entry_election,
         "blind_signature": format(blind_signature_int, "x"),
+        "sync": broadcast_result,
     }
 
 

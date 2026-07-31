@@ -100,10 +100,11 @@ function ElectionResults({ electionId, results }) {
   );
 }
 
-export default function AdminView({ adminToken: initialAdminToken = "", setAdminToken, onLogout }) {
+export default function AdminView({ adminToken: initialAdminToken = "" }) {
   const [baseUrl, setBaseUrl] = useState(DEFAULT_BASE_URL);
-  const [adminToken, setLocalAdminToken] = useState(initialAdminToken || "");
   const [chainData, setChainData] = useState(null);
+  const [connected, setConnected] = useState(false);
+  const [connecting, setConnecting] = useState(false);
   const [resultsData, setResultsData] = useState(null);
   const [resultElectionId, setResultElectionId] = useState("student-union-2026");
   const [miningLoading, setMiningLoading] = useState(false);
@@ -126,15 +127,33 @@ export default function AdminView({ adminToken: initialAdminToken = "", setAdmin
   };
 
   useEffect(() => {
+    if (!connected) return;
     const interval = setInterval(async () => {
       try {
         const data = await fetchChain(baseUrl);
         setChainData(data);
       } catch {}
     }, 5000);
-    fetchChain(baseUrl).then(setChainData).catch(() => {});
     return () => clearInterval(interval);
-  }, [baseUrl]);
+  }, [baseUrl, connected]);
+
+  const handleConnect = async () => {
+    try {
+      setConnecting(true);
+      const data = await fetchChain(baseUrl);
+      setChainData(data);
+      setConnected(true);
+    } catch (err) {
+      setChainData(null);
+    } finally {
+      setConnecting(false);
+    }
+  };
+
+  const handleDisconnect = () => {
+    setConnected(false);
+    setChainData(null);
+  };
 
   const loadResults = async () => {
     try {
@@ -154,7 +173,7 @@ export default function AdminView({ adminToken: initialAdminToken = "", setAdmin
       setMiningLoading(true);
       setActionError("");
       setActionMessage("");
-      const tokenToUse = adminToken || "";
+      const tokenToUse = initialAdminToken || "";
       const result = await mineCluster(baseUrl, 100, null, tokenToUse);
       const minedHash = result?.local?.hash || result?.hash;
       setActionMessage(
@@ -174,7 +193,7 @@ export default function AdminView({ adminToken: initialAdminToken = "", setAdmin
       setBroadcastLoading(true);
       setActionError("");
       setActionMessage("");
-      const tokenToUse = adminToken || "";
+      const tokenToUse = initialAdminToken || "";
       const result = await broadcastToNetwork(baseUrl, tokenToUse);
       setActionMessage(
         `Broadcast sent! Accepted: ${result.accepted}, Rejected: ${result.rejected}, Unreachable: ${result.unreachable}`
@@ -192,7 +211,7 @@ export default function AdminView({ adminToken: initialAdminToken = "", setAdmin
       setActionError("");
       setIssueCodeResult("");
 
-      const tokenToUse = adminToken || "";
+      const tokenToUse = initialAdminToken || "";
       const payload = {
         election_id: issueElectionId?.trim() || undefined,
         expires_in_minutes: Number(issueExpiresMinutes) || 60,
@@ -211,10 +230,6 @@ export default function AdminView({ adminToken: initialAdminToken = "", setAdmin
       setIssueLoading(false);
     }
   };
-
-  useEffect(() => {
-    setLocalAdminToken(initialAdminToken || "");
-  }, [initialAdminToken]);
 
   const stats = {
     chainLength: chainData?.chain?.length ?? "-",
@@ -238,53 +253,42 @@ export default function AdminView({ adminToken: initialAdminToken = "", setAdmin
             type="text"
             value={baseUrl}
             onChange={(e) => setBaseUrl(e.target.value)}
+            disabled={connected}
             placeholder="http://127.0.0.1:8001"
-            className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white/90 text-sm text-slate-900 focus:outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
+            className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white/90 text-sm text-slate-900 focus:outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-slate-400"
           />
         </div>
 
-        <div>
-          <div className="flex items-center gap-1.5 mb-1.5">
-            <label className="text-xs font-medium text-slate-500">Admin Token</label>
-            <div className="group relative">
-              <svg className="w-3.5 h-3.5 text-slate-400 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" />
-              </svg>
-              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-10">
-                <div className="bg-slate-800 text-white text-[11px] rounded-lg px-3 py-2 whitespace-nowrap shadow-lg">
-                  Shared secret used by the backend to
-                  <br />authorize admin operations (mining,
-                  <br />broadcasting, issuing codes). Default
-                  <br />is usually &quot;admin&quot; when configured.
-                  <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800" />
-                </div>
-              </div>
-            </div>
-          </div>
-          <input
-            type="password"
-            value={adminToken}
-            onChange={(e) => {
-              const v = e.target.value;
-              setLocalAdminToken(v);
-              if (setAdminToken) setAdminToken(v);
-            }}
-            placeholder="Required to issue codes if configured"
-            className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white/90 text-sm text-slate-900 focus:outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
-          />
-        </div>
-
-        {adminToken && (
+        {!connected ? (
           <button
-            onClick={() => {
-              setLocalAdminToken("");
-              if (setAdminToken) setAdminToken("");
-              if (onLogout) onLogout();
-            }}
-            className="w-full px-4 py-2 rounded-full text-sm font-medium text-slate-700 bg-white/80 border border-slate-200/80 hover:bg-white transition-colors"
+            onClick={handleConnect}
+            disabled={connecting}
+            className="w-full px-4 py-2.5 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-teal-600 to-blue-600 shadow-lg shadow-blue-600/20 hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
           >
-            Log out
+            {connecting ? (
+              <span className="flex items-center gap-2">
+                <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                Connecting...
+              </span>
+            ) : "Connect to Node"}
           </button>
+        ) : (
+          <>
+            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+              <span className="text-xs font-medium text-emerald-700">Connected</span>
+            </div>
+            <button
+              onClick={handleDisconnect}
+              className="w-full px-4 py-2 rounded-xl text-xs font-medium text-slate-700 bg-white/80 border border-slate-200/80 hover:bg-white transition-colors"
+            >
+              Disconnect
+            </button>
+            <p className="text-[10px] text-slate-400 m-0 text-center">Auto-refreshes every 5s</p>
+          </>
         )}
 
         {chainData && (
@@ -313,7 +317,21 @@ export default function AdminView({ adminToken: initialAdminToken = "", setAdmin
       </aside>
 
       <div className="flex-1 min-w-0 flex flex-col gap-4">
-        {chainData && (
+        {!connected ? (
+          <div className="p-10 rounded-2xl bg-white/70 border border-slate-200/60 backdrop-blur-md flex flex-col items-center justify-center gap-3 text-center">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center">
+              <svg className="w-6 h-6 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-slate-900 m-0">Not connected</h3>
+              <p className="text-sm text-slate-500 mt-1 max-w-sm">
+                Enter a node URL and click &ldquo;Connect to Node&rdquo; to start managing elections.
+              </p>
+            </div>
+          </div>
+        ) : (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <StatCard label="Chain Length" value={stats.chainLength} icon="chain" />
             <StatCard label="Pending Votes" value={stats.pendingVotes} icon="votes" />
@@ -342,9 +360,9 @@ export default function AdminView({ adminToken: initialAdminToken = "", setAdmin
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <div className="p-5 rounded-2xl bg-white/70 border border-slate-200/60 backdrop-blur-md flex flex-col gap-4">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-slate-800 to-slate-700 flex items-center justify-center shadow-lg">
+              <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-blue-600 to-blue-700 flex items-center justify-center shadow-lg shadow-blue-600/20">
                 <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" />
                 </svg>
               </div>
               <div>
@@ -353,50 +371,60 @@ export default function AdminView({ adminToken: initialAdminToken = "", setAdmin
               </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-3">
-              <button
-                onClick={handleMine}
-                disabled={miningLoading}
-                className="flex-1 px-5 py-3 rounded-xl text-sm font-bold text-white bg-gradient-to-br from-slate-800 to-slate-900 shadow-lg shadow-slate-900/20 hover:from-slate-700 hover:to-slate-800 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2"
-              >
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
-                </svg>
-                {miningLoading ? (
-                  <span className="flex items-center gap-2">
-                    <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                    </svg>
-                    Mining...
-                  </span>
-                ) : "Mine Pending Votes"}
-              </button>
-              <button
-                onClick={handleBroadcast}
-                disabled={broadcastLoading}
-                className="flex-1 px-5 py-3 rounded-xl text-sm font-bold text-slate-700 bg-white border-2 border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2"
-              >
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H6.75A2.25 2.25 0 004.5 6.75v10.5a2.25 2.25 0 002.25 2.25z" />
-                </svg>
-                {broadcastLoading ? (
-                  <span className="flex items-center gap-2">
-                    <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                    </svg>
-                    Broadcasting...
-                  </span>
-                ) : "Broadcast to Network"}
-              </button>
-            </div>
+            <div className="flex flex-col divide-y divide-slate-200/60 rounded-2xl border border-slate-200/60 bg-white/50 overflow-hidden">
+              <div className="flex items-center gap-3 p-4">
+                <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
+                  <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 5.625c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
+                  </svg>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-slate-800 m-0">Mine Pending Votes</p>
+                  <p className="text-xs text-slate-500 mt-0.5">Seal the mempool into a new block with proof-of-work.</p>
+                </div>
+                <button
+                  onClick={handleMine}
+                  disabled={miningLoading || !connected}
+                  className="w-28 shrink-0 px-4 py-2 rounded-full text-sm font-medium text-white bg-gradient-to-r from-teal-600 to-blue-600 shadow-lg shadow-blue-600/20 hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {miningLoading ? (
+                    <span className="flex items-center gap-2">
+                      <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                      Mining...
+                    </span>
+                  ) : "Mine"}
+                </button>
+              </div>
 
-            <div className="p-3 rounded-xl bg-slate-50/80 border border-slate-200/60">
-              <p className="text-xs text-slate-500 m-0">
-                <span className="font-medium text-slate-600">Mining</span> collects pending votes into a new block with proof-of-work.{' '}
-                <span className="font-medium text-slate-600">Broadcasting</span> shares the latest blocks with peer nodes.
-              </p>
+              <div className="flex items-center gap-3 p-4">
+                <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
+                  <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H6.75A2.25 2.25 0 004.5 6.75v10.5a2.25 2.25 0 002.25 2.25z" />
+                  </svg>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-slate-800 m-0">Broadcast to Network</p>
+                  <p className="text-xs text-slate-500 mt-0.5">Share the latest blocks with peer nodes.</p>
+                </div>
+                <button
+                  onClick={handleBroadcast}
+                  disabled={broadcastLoading || !connected}
+                  className="w-28 shrink-0 px-4 py-2 rounded-full text-sm font-medium text-white bg-gradient-to-r from-teal-600 to-blue-600 shadow-lg shadow-blue-600/20 hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {broadcastLoading ? (
+                    <span className="flex items-center gap-2">
+                      <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                      Broadcasting...
+                    </span>
+                  ) : "Broadcast"}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -439,7 +467,7 @@ export default function AdminView({ adminToken: initialAdminToken = "", setAdmin
               </div>
               <button
                 onClick={handleIssueCode}
-                disabled={issueLoading}
+                disabled={issueLoading || !connected}
                 className="w-full px-5 py-2.5 rounded-full text-sm font-medium text-white bg-gradient-to-r from-teal-600 to-blue-600 shadow-lg shadow-blue-600/20 hover:opacity-90 transition-opacity disabled:opacity-50"
               >
                 {issueLoading ? "Preparing..." : "Prepare Invitation"}
@@ -498,10 +526,10 @@ export default function AdminView({ adminToken: initialAdminToken = "", setAdmin
             </label>
             <button
               onClick={loadResults}
-              disabled={resultsLoading}
+              disabled={resultsLoading || !connected}
               className="px-5 py-2 rounded-full text-sm font-medium text-white bg-gradient-to-r from-teal-600 to-blue-600 shadow-lg shadow-blue-600/20 hover:opacity-90 transition-opacity disabled:opacity-50"
             >
-              {resultsLoading ? "Loading..." : "View Results"}
+              {resultsLoading ? "Loading..." : !connected ? "Connect to node first" : "View Results"}
             </button>
           </div>
 

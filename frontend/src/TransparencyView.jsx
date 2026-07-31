@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { DEFAULT_BASE_URL, fetchChain, revalidateChain, resolveConsensus } from "./api";
+import { useEffect, useMemo, useState } from "react";
+import { DEFAULT_BASE_URL, fetchChain, fetchNodeState, revalidateChain, resolveConsensus } from "./api";
 
 function humanizeError(msg) {
   if (!msg) return "An unknown error occurred";
@@ -47,127 +47,90 @@ function StatCard({ label, value }) {
   );
 }
 
-function BlockCard({ block }) {
+function BlockRow({ block, defaultExpanded }) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
+
+  const time = new Date(block.timestamp * 1000);
+  const dateStr = time.toLocaleDateString();
+  const timeStr = time.toLocaleTimeString();
+
   return (
-    <div className="w-56 p-3.5 rounded-xl bg-white/90 border border-slate-200/70 shadow-sm hover:shadow-md transition-shadow">
-      <div className="flex items-center justify-between gap-2 mb-1.5">
-        <span className="text-xs font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded-md">
-          #{block.index}
-        </span>
-        <span className="text-[10px] text-slate-400 font-mono">
-          {new Date(block.timestamp * 1000).toLocaleTimeString()}
-        </span>
-      </div>
-      <div className="space-y-0.5 text-[11px] font-mono text-slate-500">
-        <div className="flex items-center gap-1.5">
-          <span className="text-slate-400 w-4 shrink-0">H</span>
-          <span className="truncate">{block.hash?.substring(0, 12)}..</span>
+    <div className="border border-slate-200/60 rounded-xl bg-white/90 overflow-hidden">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-slate-50/50 transition-colors cursor-pointer"
+      >
+        <div className="flex items-center gap-2 w-24 shrink-0">
+          <span className="w-7 h-7 rounded-lg bg-gradient-to-br from-teal-500 to-blue-500 text-white text-[11px] font-bold flex items-center justify-center shrink-0">
+            {block.index}
+          </span>
+          <svg
+            className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${expanded ? "rotate-180" : ""}`}
+            fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+          </svg>
         </div>
-        <div className="flex items-center gap-1.5">
-          <span className="text-slate-400 w-4 shrink-0">N</span>
-          <span className="truncate">{String(block.nonce).substring(0, 14)}</span>
-        </div>
-      </div>
-      <div className="flex items-center gap-1.5 mt-1.5 pt-1.5 border-t border-slate-100">
-        <svg className="w-3 h-3 text-teal-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-        <span className="text-[11px] font-medium text-teal-700">{block.transactions.length} votes</span>
-      </div>
-    </div>
-  );
-}
-
-function RowArrow() {
-  return (
-    <div className="flex items-center shrink-0">
-      <svg className="w-5 h-5 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
-      </svg>
-      <div className="w-4 h-px bg-gradient-to-r from-slate-300 to-transparent" />
-    </div>
-  );
-}
-
-function TurnArrow() {
-  return (
-    <div className="flex justify-end pr-2.5 -mb-2 -mt-2">
-      <svg width="28" height="28" viewBox="0 0 28 28" fill="none" className="text-slate-300">
-        <path
-          d="M4 14 C4 8, 10 6, 16 6 L22 6"
-          stroke="currentColor" strokeWidth="2" strokeLinecap="round" fill="none"
-        />
-        <path
-          d="M18 2 L22 6 L18 10"
-          stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none"
-        />
-        <path
-          d="M24 10 L24 16"
-          stroke="currentColor" strokeWidth="2" strokeLinecap="round" fill="none"
-        />
-        <path
-          d="M20 14 L24 18 L28 14"
-          stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none"
-        />
-      </svg>
-    </div>
-  );
-}
-
-function ChainFlow({ chainData }) {
-  const containerRef = useRef(null);
-  const [blocksPerRow, setBlocksPerRow] = useState(4);
-
-  const blocks = chainData?.chain || [];
-
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const measure = () => {
-      const cardWidth = 264;
-      const count = Math.max(1, Math.floor(el.clientWidth / cardWidth));
-      setBlocksPerRow(count);
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [blocks.length]);
-
-  if (!blocks.length) {
-    return (
-      <div className="flex items-center justify-center h-32 text-sm text-slate-400">
-        <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
-        </svg>
-        No blocks yet. Start mining to see the chain.
-      </div>
-    );
-  }
-
-  const display = [...blocks].reverse().slice(0, 24);
-  const rows = [];
-  for (let i = 0; i < display.length; i += blocksPerRow) {
-    rows.push(display.slice(i, i + blocksPerRow));
-  }
-
-  return (
-    <div ref={containerRef} className="w-full">
-      {rows.map((row, ri) => (
-        <div key={ri} className="flex flex-col">
-          <div className="flex flex-wrap items-center">
-            {row.map((block, bi) => (
-              <div key={block.hash} className="flex items-center">
-                <BlockCard block={block} />
-                {bi < row.length - 1 && <RowArrow />}
-              </div>
-            ))}
+        <div className="flex-1 grid grid-cols-5 gap-4 text-xs items-center min-w-0">
+          <div className="col-span-2 min-w-0">
+            <p className="font-mono text-slate-700 font-semibold break-all m-0 leading-relaxed">{block.hash || "-"}</p>
           </div>
-          {ri < rows.length - 1 && <TurnArrow />}
+          <div>
+            <p className="text-slate-500 m-0">{dateStr} {timeStr}</p>
+          </div>
+          <div>
+            <p className="text-slate-500 m-0">
+              Nonce: <span className="font-mono text-slate-700">{block.nonce}</span>
+            </p>
+          </div>
+          <div className="text-right">
+            <span className="inline-flex items-center gap-1 text-teal-700 font-medium">
+              <svg className="w-3.5 h-3.5 text-teal-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              {block.transactions.length}
+            </span>
+          </div>
         </div>
-      ))}
-      {blocks.length > 24 && (
-        <p className="text-xs text-slate-400 mt-2">+{blocks.length - 24} more blocks</p>
+      </button>
+
+      {expanded && (
+        <div className="border-t border-slate-200/60 bg-slate-50/50">
+          <div className="px-4 py-2.5">
+            <div className="flex items-center gap-6 text-[11px] text-slate-500 mb-2.5 pb-2 border-b border-slate-200/50">
+              <span><span className="font-medium text-slate-600">Previous Hash:</span> <span className="font-mono break-all">{block.previous_hash || "-"}</span></span>
+            </div>
+
+            {block.transactions.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-[10px] text-slate-500 uppercase tracking-wider">
+                      <th className="text-left font-medium pb-1.5 pr-2">#</th>
+                      <th className="text-left font-medium pb-1.5 pr-3">Candidate</th>
+                      <th className="text-left font-medium pb-1.5 pr-3">Election</th>
+                      <th className="text-left font-medium pb-1.5 pr-3">Nonce</th>
+                      <th className="text-left font-medium pb-1.5">Signature</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200/50">
+                    {block.transactions.map((vote, i) => (
+                      <tr key={i} className="hover:bg-white/60">
+                        <td className="py-1.5 pr-2 text-slate-400 font-mono text-[10px] align-top">{i + 1}</td>
+                        <td className="py-1.5 pr-3 font-medium text-slate-800 align-top">{vote.candidate_id}</td>
+                        <td className="py-1.5 pr-3 text-slate-600 align-top">{vote.election_id}</td>
+                        <td className="py-1.5 pr-3 font-mono text-[10px] text-slate-500 align-top break-all max-w-[200px]">{vote.nonce || "-"}</td>
+                        <td className="py-1.5 font-mono text-[10px] text-slate-400 align-top break-all max-w-[280px]">0x{vote.signature || "-"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400 m-0 py-1 text-center">Genesis block — no transactions</p>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
@@ -211,6 +174,9 @@ export default function TransparencyView() {
   const [revalidationLoading, setRevalidationLoading] = useState(false);
   const [consensusLoading, setConsensusLoading] = useState(false);
   const [toasts, setToasts] = useState([]);
+  const [connected, setConnected] = useState(false);
+  const [connecting, setConnecting] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   const addToast = (message, type = "info") => {
     const id = Date.now();
@@ -219,6 +185,46 @@ export default function TransparencyView() {
   };
 
   const dismissToast = (id) => setToasts((prev) => prev.filter((t) => t.id !== id));
+
+  const handleConnect = async () => {
+    try {
+      setConnecting(true);
+      const data = await fetchChain(baseUrl);
+      setChainData(data);
+      setConnected(true);
+      addToast(`Connected to node — chain length ${data.chain?.length || 0}`, "success");
+    } catch (err) {
+      addToast(humanizeError(err.message), "error");
+    } finally {
+      setConnecting(false);
+    }
+  };
+
+  const handleDisconnect = () => {
+    setConnected(false);
+    setChainData(null);
+  };
+
+  const handleDownloadState = async () => {
+    try {
+      setDownloading(true);
+      const state = await fetchNodeState(baseUrl);
+      const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `node-state-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      addToast(`State downloaded — ${state.chain?.length || 0} blocks`, "success");
+    } catch (err) {
+      addToast(`Download failed: ${err.message}`, "error");
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   const networkStats = useMemo(() => {
     if (!chainData) return { chainLength: "-", pendingVotes: "-", peers: "-", difficulty: "-" };
@@ -282,7 +288,18 @@ export default function TransparencyView() {
     }
   };
 
-  useEffect(() => { loadChainData(); }, [baseUrl]);
+  useEffect(() => {
+    if (!connected) return;
+    const interval = setInterval(() => {
+      fetchChain(baseUrl).then(setChainData).catch(() => {});
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [connected, baseUrl]);
+
+  const blocks = useMemo(() => {
+    if (!chainData?.chain) return [];
+    return [...chainData.chain].reverse();
+  }, [chainData]);
 
   return (
     <div className="flex flex-col lg:flex-row gap-4">
@@ -290,7 +307,7 @@ export default function TransparencyView() {
         <div>
           <p className="text-xs font-bold uppercase tracking-wider text-blue-600 m-0">Transparency</p>
           <h2 className="text-lg font-bold text-slate-900 mt-1 m-0">Chain Explorer</h2>
-          <p className="text-xs text-slate-500 mt-1">Inspect the blockchain state and validate integrity.</p>
+          <p className="text-xs text-slate-500 mt-1">Inspect every block and vote end-to-end.</p>
         </div>
         <div>
           <label className="text-xs font-medium text-slate-500 mb-1.5 block">Node URL</label>
@@ -298,17 +315,62 @@ export default function TransparencyView() {
             type="text"
             value={baseUrl}
             onChange={(e) => setBaseUrl(e.target.value)}
+            disabled={connected}
             placeholder="http://127.0.0.1:8001"
-            className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white/90 text-sm text-slate-900 focus:outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
+            className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white/90 text-sm text-slate-900 focus:outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-slate-400"
           />
         </div>
-        <button
-          onClick={loadChainData}
-          disabled={loading}
-          className="w-full px-4 py-2 rounded-xl text-sm font-medium bg-white/80 text-slate-700 border border-slate-200/80 hover:bg-white transition-colors disabled:opacity-50"
-        >
-          {loading ? "Loading..." : "Refresh"}
-        </button>
+
+        {!connected ? (
+          <button
+            onClick={handleConnect}
+            disabled={connecting}
+            className="w-full px-4 py-2.5 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-teal-600 to-blue-600 shadow-lg shadow-blue-600/20 hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {connecting ? (
+              <span className="flex items-center gap-2">
+                <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                Connecting...
+              </span>
+            ) : "Connect to Node"}
+          </button>
+        ) : (
+          <>
+            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+              <span className="text-xs font-medium text-emerald-700">Connected</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={handleDownloadState}
+                disabled={downloading}
+                className="px-3 py-2 rounded-xl text-xs font-medium text-slate-700 bg-white/80 border border-slate-200/80 hover:bg-white transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                </svg>
+                {downloading ? "..." : "State"}
+              </button>
+              <button
+                onClick={handleDisconnect}
+                className="px-3 py-2 rounded-xl text-xs font-medium text-slate-700 bg-white/80 border border-slate-200/80 hover:bg-white transition-colors"
+              >
+                Disconnect
+              </button>
+            </div>
+            <p className="text-[10px] text-slate-400 m-0 text-center">Auto-refreshes every 5s</p>
+          </>
+        )}
+
+        <div className="pt-2 border-t border-slate-200/60">
+          <p className="text-[10px] font-medium text-slate-500 uppercase tracking-wider m-0 mb-1">How it works</p>
+          <p className="text-[10px] text-slate-400 m-0 leading-relaxed">
+            Blocks are listed newest-first. Click any block to expand it and inspect every vote inside. Use &ldquo;State&rdquo; to download the raw node JSON and verify it yourself.
+          </p>
+        </div>
       </aside>
 
       <div className="flex-1 min-w-0 flex flex-col gap-4">
@@ -318,33 +380,89 @@ export default function TransparencyView() {
           ))}
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <StatCard label="Chain Length" value={networkStats.chainLength} />
-          <StatCard label="Pending Votes" value={networkStats.pendingVotes} />
-          <StatCard label="Connected Peers" value={networkStats.peers} />
-          <StatCard label="Difficulty" value={networkStats.difficulty} />
-        </div>
+        {!connected ? (
+          <div className="p-10 rounded-2xl bg-white/70 border border-slate-200/60 backdrop-blur-md flex flex-col items-center justify-center gap-3 text-center">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center">
+              <svg className="w-6 h-6 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-slate-900 m-0">Not connected</h3>
+              <p className="text-sm text-slate-500 mt-1 max-w-sm">
+                Enter a node URL and click &ldquo;Connect to Node&rdquo; to inspect its blockchain and download its raw state.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <StatCard label="Chain Length" value={networkStats.chainLength} />
+            <StatCard label="Pending Votes" value={networkStats.pendingVotes} />
+            <StatCard label="Connected Peers" value={networkStats.peers} />
+            <StatCard label="Difficulty" value={networkStats.difficulty} />
+          </div>
+        )}
 
         <div className="p-5 rounded-2xl bg-white/70 border border-slate-200/60 backdrop-blur-md flex flex-col gap-3">
-          <div>
-            <h3 className="text-base font-bold text-slate-900 m-0">Blockchain State</h3>
-            <p className="text-xs text-slate-500 mt-0.5">Blocks flowing from newest (top row) to oldest (bottom row)</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-base font-bold text-slate-900 m-0">Blockchain State</h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {!connected
+                  ? "Connect to a node to inspect its chain."
+                  : blocks.length > 0
+                    ? `${blocks.length} block${blocks.length === 1 ? "" : "s"} — newest first. Click a block to view transactions.`
+                    : "No blocks yet. Start mining to see the chain."}
+              </p>
+            </div>
           </div>
-          <ChainFlow chainData={chainData} />
+
+          {!connected ? (
+            <div className="flex items-center justify-center h-32 text-sm text-slate-400">
+              <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+              </svg>
+              No data. Click &ldquo;Connect to Node&rdquo; in the sidebar.
+            </div>
+          ) : blocks.length > 0 ? (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-4 px-4 py-1.5 text-[10px] text-slate-400 uppercase tracking-wider font-medium">
+                <span className="w-24 shrink-0" />
+                <span className="flex-1 grid grid-cols-5 gap-4">
+                  <span className="col-span-2">Hash</span>
+                  <span>Timestamp</span>
+                  <span>Nonce</span>
+                  <span className="text-right">Votes</span>
+                </span>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                {blocks.map((block) => (
+                  <BlockRow key={block.hash} block={block} />
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-center h-32 text-sm text-slate-400">
+              <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+              </svg>
+              No blocks yet. Start mining to see the chain.
+            </div>
+          )}
         </div>
 
         <div className="p-5 rounded-2xl bg-white/70 border border-slate-200/60 backdrop-blur-md flex flex-col gap-4">
           <div>
             <h3 className="text-base font-bold text-slate-900 m-0">Revalidate Chain</h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Reads the chain from disk (not from memory) and checks every block end-to-end: hash integrity,
-              previous-hash linkage, proof-of-work difficulty, and vote validity. Reports first failure with details.
+              Reads the chain from disk and checks every block end-to-end: hash integrity,
+              previous-hash linkage, proof-of-work difficulty, and vote validity.
             </p>
           </div>
 
           <button
             onClick={handleRevalidate}
-            disabled={revalidationLoading}
+            disabled={revalidationLoading || !connected}
             className="w-full sm:w-auto px-5 py-2.5 rounded-full text-sm font-medium text-white bg-gradient-to-r from-teal-600 to-blue-600 shadow-lg shadow-blue-600/20 hover:opacity-90 transition-opacity disabled:opacity-50"
           >
             {revalidationLoading ? (
@@ -422,7 +540,7 @@ export default function TransparencyView() {
 
           <button
             onClick={handleResolveConsensus}
-            disabled={consensusLoading}
+            disabled={consensusLoading || !connected}
             className="w-full sm:w-auto px-5 py-2.5 rounded-full text-sm font-medium text-slate-700 bg-white/80 border border-slate-200/80 hover:bg-white transition-colors disabled:opacity-50"
           >
             {consensusLoading ? (

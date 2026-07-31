@@ -1,0 +1,7 @@
+[2026-07-31 11:50:03,067] [INFO] [MainThread] No persisted chain found at node2.json; starting fresh
+INFO:     Started server process [32410]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+ERROR:    [Errno 98] error while attempting to bind on address ('127.0.0.1', 8002): [errno 98] address already in use
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.

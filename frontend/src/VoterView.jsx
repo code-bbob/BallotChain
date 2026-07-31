@@ -3,7 +3,6 @@ import {
   castVote,
   DEFAULT_BASE_URL,
   fetchChain,
-  mineCluster,
   fetchBlindPublicKey,
   requestBlindSignature,
 } from "./api";
@@ -15,7 +14,7 @@ import {
   parseNonceFromVoteMessage,
 } from "./wallet";
 
-function BlindVoteSection({ baseUrl }) {
+function BlindVoteSection({ baseUrl, connected }) {
   const [electionId, setElectionId] = useState("student-union-2026");
   const [candidateId, setCandidateId] = useState("");
   const [registrationCode, setRegistrationCode] = useState("");
@@ -26,6 +25,12 @@ function BlindVoteSection({ baseUrl }) {
   const [keyStatus, setKeyStatus] = useState("");
 
   useEffect(() => {
+    if (!connected) {
+      setBlindPublicKey(null);
+      setKeyStatus("");
+      return;
+    }
+
     let cancelled = false;
 
     const loadBlindKey = async () => {
@@ -48,7 +53,7 @@ function BlindVoteSection({ baseUrl }) {
     return () => {
       cancelled = true;
     };
-  }, [baseUrl]);
+  }, [baseUrl, connected]);
 
   const handleBlindVote = async (e) => {
     e.preventDefault();
@@ -175,10 +180,10 @@ function BlindVoteSection({ baseUrl }) {
 
         <button
           type="submit"
-          disabled={loading || !blindPublicKey}
+          disabled={loading || !connected || !blindPublicKey}
           className="w-full px-5 py-2.5 rounded-full text-sm font-medium text-white bg-gradient-to-r from-teal-600 to-blue-600 shadow-lg shadow-blue-600/20 hover:opacity-90 transition-opacity disabled:opacity-50 mt-1"
         >
-          {loading ? "Submitting..." : "Submit Anonymous Vote"}
+          {loading ? "Submitting..." : !connected ? "Connect to node first" : "Submit Anonymous Vote"}
         </button>
       </form>
 
@@ -199,10 +204,11 @@ function BlindVoteSection({ baseUrl }) {
 export default function VoterView() {
   const [baseUrl, setBaseUrl] = useState(DEFAULT_BASE_URL);
   const [chainData, setChainData] = useState(null);
-  const [mining, setMining] = useState(false);
-  const [miningInfo, setMiningInfo] = useState(null);
+  const [connected, setConnected] = useState(false);
+  const [connecting, setConnecting] = useState(false);
 
   useEffect(() => {
+    if (!connected) return;
     const interval = setInterval(async () => {
       try {
         const data = await fetchChain(baseUrl);
@@ -213,37 +219,24 @@ export default function VoterView() {
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [baseUrl]);
+  }, [baseUrl, connected]);
 
-  const handleClusterMine = async () => {
-    if (mining) return;
-    const prevLength = chainData?.chain?.length || 0;
-    const prevPending = chainData?.pending_votes || 0;
-    setMining(true);
-    setMiningInfo({ status: "starting" });
-
+  const handleConnect = async () => {
     try {
-      const res = await mineCluster(baseUrl, 100);
-      setMiningInfo({ status: "mining", response: res });
-
-      const start = Date.now();
-      const pollId = setInterval(async () => {
-        try {
-          const data = await fetchChain(baseUrl);
-          setChainData(data);
-          if ((data.chain?.length || 0) > prevLength || (data.pending_votes || 0) < prevPending) {
-            clearInterval(pollId);
-            setMining(false);
-            setMiningInfo((old) => ({ ...old, status: "finished", final: data, elapsed_ms: Date.now() - start }));
-          }
-        } catch (e) {
-          // ignore
-        }
-      }, 1000);
+      setConnecting(true);
+      const data = await fetchChain(baseUrl);
+      setChainData(data);
+      setConnected(true);
     } catch (err) {
-      setMining(false);
-      setMiningInfo({ status: "error", error: err.message });
+      setChainData(null);
+    } finally {
+      setConnecting(false);
     }
+  };
+
+  const handleDisconnect = () => {
+    setConnected(false);
+    setChainData(null);
   };
 
   return (
@@ -263,32 +256,45 @@ export default function VoterView() {
             type="text"
             value={baseUrl}
             onChange={(e) => setBaseUrl(e.target.value)}
+            disabled={connected}
             placeholder="http://127.0.0.1:8001"
-            className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white/90 text-sm text-slate-900 focus:outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
+            className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white/90 text-sm text-slate-900 focus:outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-slate-400"
           />
         </div>
 
-        <div>
+        {!connected ? (
           <button
-            onClick={handleClusterMine}
-            disabled={mining}
-            className="w-full px-4 py-2 rounded-full text-sm font-medium text-white bg-gradient-to-r from-teal-600 to-blue-600 shadow-lg shadow-blue-600/20 hover:opacity-90 transition-opacity disabled:opacity-50"
+            onClick={handleConnect}
+            disabled={connecting}
+            className="w-full px-4 py-2.5 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-teal-600 to-blue-600 shadow-lg shadow-blue-600/20 hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
           >
-            {mining ? "Mining\u2026" : "Mine (cluster)"}
+            {connecting ? (
+              <span className="flex items-center gap-2">
+                <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                Connecting...
+              </span>
+            ) : "Connect to Node"}
           </button>
-          {miningInfo && (
-            <div className="mt-2">
-              <p className="text-xs text-slate-500 m-0">
-                {miningInfo.status === "starting" && "Starting cluster mine..."}
-                {miningInfo.status === "mining" && `Mining started \u2014 peers: ${JSON.stringify(miningInfo.response?.peers || {})}`}
-                {miningInfo.status === "finished" && `Done in ${Math.round((miningInfo.elapsed_ms||0)/1000)}s`}
-                {miningInfo.status === "error" && `Error: ${miningInfo.error}`}
-              </p>
+        ) : (
+          <>
+            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+              <span className="text-xs font-medium text-emerald-700">Connected</span>
             </div>
-          )}
-        </div>
+            <button
+              onClick={handleDisconnect}
+              className="w-full px-4 py-2 rounded-xl text-xs font-medium text-slate-700 bg-white/80 border border-slate-200/80 hover:bg-white transition-colors"
+            >
+              Disconnect
+            </button>
+            <p className="text-[10px] text-slate-400 m-0 text-center">Auto-refreshes every 5s</p>
+          </>
+        )}
 
-        {chainData && (
+        {connected && chainData && (
           <div className="flex flex-col gap-2">
             <p className="text-xs font-medium text-slate-500 uppercase tracking-wider m-0">Network Status</p>
             <div className="grid grid-cols-2 gap-2">
@@ -306,7 +312,7 @@ export default function VoterView() {
       </aside>
 
       <div className="flex-1 min-w-0 flex flex-col gap-4">
-        <BlindVoteSection baseUrl={baseUrl} />
+        <BlindVoteSection baseUrl={baseUrl} connected={connected} />
       </div>
     </div>
   );

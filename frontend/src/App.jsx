@@ -45,28 +45,23 @@ export default function App() {
     setMode("admin");
   };
 
-  const handleLogout = () => {
-    setAdminToken("");
-    setMode("select");
-  };
-
   const renderTopBar = (title, subtitle) => (
-    <header className="topbar topbar-split">
+    <header className="flex items-center justify-between gap-4 py-1 pb-3">
       <div>
-        <p className="eyebrow">TrueVote</p>
-        <h1>{title}</h1>
-        <p className="subtitle">{subtitle}</p>
+        <p className="text-xs font-bold uppercase tracking-widest text-blue-600 m-0">TrueVote</p>
+        <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 mt-0.5 m-0">{title}</h1>
+        <p className="text-sm text-slate-500 mt-0.5 m-0 max-w-prose">{subtitle}</p>
       </div>
-      <div className="topbar-actions">
-        <button className="secondary" onClick={() => setMode("select")}>Back to hub</button>
+      <div className="flex gap-2 items-center shrink-0">
+        <button className="rounded-full px-4 py-2 text-sm bg-white/80 border border-slate-200/80 text-slate-700 hover:bg-white transition-colors" onClick={() => setMode("select")}>Back to hub</button>
       </div>
     </header>
   );
 
   if (mode === "admin") {
     return (
-      <div className="page-shell admin-theme">
-        <div className="page-frame">
+      <div className="min-h-screen p-4 sm:p-6">
+        <div className="mx-auto max-w-7xl flex flex-col gap-4">
           {renderTopBar(
             "Election Administration",
             "Manage voters, mine the cluster, and inspect the blockchain state."
@@ -74,7 +69,7 @@ export default function App() {
           {!adminToken ? (
             <AdminLogin onLogin={handleLogin} onCancel={() => setMode("select")} />
           ) : (
-            <AdminView adminToken={adminToken} setAdminToken={setAdminToken} onLogout={handleLogout} />
+            <AdminView adminToken={adminToken} />
           )}
         </div>
       </div>
@@ -83,8 +78,8 @@ export default function App() {
 
   if (mode === "voter") {
     return (
-      <div className="page-shell voter-theme">
-        <div className="page-frame">
+      <div className="min-h-screen p-4 sm:p-6">
+        <div className="mx-auto max-w-7xl flex flex-col gap-4">
           {renderTopBar(
             "Voting Console",
             "Blind-sign anonymous voting with live network feedback."
@@ -97,15 +92,15 @@ export default function App() {
 
   if (mode === "transparency") {
     return (
-      <div className="page-shell landing-theme">
-        <div className="mx-auto max-w-7xl px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between mb-6">
+      <div className="min-h-screen p-4 sm:p-6">
+        <div className="mx-auto max-w-7xl flex flex-col gap-4">
+          <header className="flex items-center justify-between gap-4">
             <div>
               <p className="text-xs font-bold uppercase tracking-widest text-blue-600 m-0">TrueVote</p>
-              <h1 className="text-2xl font-bold text-slate-900 mt-0.5 m-0">Transparency Console</h1>
+              <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 mt-0.5 m-0">Transparency Console</h1>
             </div>
-            <button className="rounded-full px-4 py-2 text-sm bg-white/70 border border-slate-200/80 text-slate-900" onClick={() => setMode("select")}>Back to hub</button>
-          </div>
+            <button className="rounded-full px-4 py-2 text-sm bg-white/80 border border-slate-200/80 text-slate-700 hover:bg-white transition-colors shrink-0" onClick={() => setMode("select")}>Back to hub</button>
+          </header>
           <TransparencyView />
         </div>
       </div>
@@ -113,7 +108,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen landing-theme">
+    <div className="min-h-screen">
       <div className="mx-auto max-w-7xl px-6 lg:px-8">
         <header className="flex items-center justify-between py-4">
           <div>
@@ -152,24 +147,24 @@ export default function App() {
               <div className="vis-block">
                 <span className="vis-block-num">#21</span>
                 <div className="vis-block-info">
-                  <span className="vis-block-label">Block 0x4a1f…b3e2</span>
-                  <span className="vis-block-hash">Nonce: 0x0000…a9f4 · 12 txns</span>
+                  <span className="vis-block-label">Block 0x4a1f&hellip;b3e2</span>
+                  <span className="vis-block-hash">Nonce: 0x0000&hellip;a9f4 &middot; 12 txns</span>
                 </div>
                 <span className="vis-block-status mined">mined</span>
               </div>
               <div className="vis-block">
                 <span className="vis-block-num">#22</span>
                 <div className="vis-block-info">
-                  <span className="vis-block-label">Block 0x7c3d…f801</span>
-                  <span className="vis-block-hash">Nonce: 0x0000…b2e7 · 8 txns</span>
+                  <span className="vis-block-label">Block 0x7c3d&hellip;f801</span>
+                  <span className="vis-block-hash">Nonce: 0x0000&hellip;b2e7 &middot; 8 txns</span>
                 </div>
                 <span className="vis-block-status mined">mined</span>
               </div>
               <div className="vis-block">
                 <span className="vis-block-num">#23</span>
                 <div className="vis-block-info">
-                  <span className="vis-block-label">Block 0x9e5a…4c3b</span>
-                  <span className="vis-block-hash">⧫ mining … 0x0000…1e</span>
+                  <span className="vis-block-label">Block 0x9e5a&hellip;4c3b</span>
+                  <span className="vis-block-hash">&diams; mining &hellip; 0x0000&hellip;1e</span>
                 </div>
                 <span className="vis-block-status mining">mining</span>
               </div>
@@ -177,7 +172,7 @@ export default function App() {
                 <span className="vis-block-num">#24</span>
                 <div className="vis-block-info">
                   <span className="vis-block-label">Mempool</span>
-                  <span className="vis-block-hash">3 pending votes · 0xb8f…</span>
+                  <span className="vis-block-hash">3 pending votes &middot; 0xb8f&hellip;</span>
                 </div>
                 <span className="vis-block-status pending">pending</span>
               </div>
