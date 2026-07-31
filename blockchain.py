@@ -91,7 +91,6 @@ class Blockchain:
                 "election_id": election_id,
                 "nonce": nonce,
                 "signature": signature,
-                "timestamp": time(),
             }
         )
         return self.latest_block.index + 1

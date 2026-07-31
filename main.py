@@ -915,7 +915,6 @@ def cast_vote(vote: VoteIn) -> dict[str, Any]:
                 "election_id": vote.election_id,
                 "nonce": vote.nonce,
                 "signature": vote.signature,
-                "timestamp": str(datetime.utcnow().timestamp()),
             }
         )
     except Exception:
