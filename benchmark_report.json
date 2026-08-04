@@ -1,0 +1,482 @@
+{
+  "timestamp": "2026-08-02T14:58:49.298984",
+  "node": "http://127.0.0.1:8001",
+  "peers": [
+    "http://127.0.0.1:8002",
+    "http://127.0.0.1:8003"
+  ],
+  "difficulty": 5,
+  "modulus_bits": 2048,
+  "chain_length_before": 20,
+  "runs": 5,
+  "batches": [
+    1,
+    2,
+    5,
+    10,
+    20,
+    50
+  ],
+  "per_hash_scaling": [
+    {
+      "k": 1,
+      "block_bytes": 752,
+      "per_hash_us": 6.692,
+      "hashrate_kH_s": 149.42,
+      "expected_block_s": 7.02,
+      "relative_per_hash": 1.0
+    },
+    {
+      "k": 2,
+      "block_bytes": 1357,
+      "per_hash_us": 8.905,
+      "hashrate_kH_s": 112.3,
+      "expected_block_s": 9.34,
+      "relative_per_hash": 1.33
+    },
+    {
+      "k": 5,
+      "block_bytes": 3172,
+      "per_hash_us": 15.263,
+      "hashrate_kH_s": 65.52,
+      "expected_block_s": 16.0,
+      "relative_per_hash": 2.28
+    },
+    {
+      "k": 10,
+      "block_bytes": 6197,
+      "per_hash_us": 25.664,
+      "hashrate_kH_s": 38.97,
+      "expected_block_s": 26.91,
+      "relative_per_hash": 3.83
+    },
+    {
+      "k": 20,
+      "block_bytes": 12247,
+      "per_hash_us": 46.484,
+      "hashrate_kH_s": 21.51,
+      "expected_block_s": 48.74,
+      "relative_per_hash": 6.95
+    },
+    {
+      "k": 50,
+      "block_bytes": 30397,
+      "per_hash_us": 174.224,
+      "hashrate_kH_s": 5.74,
+      "expected_block_s": 182.69,
+      "relative_per_hash": 26.03
+    },
+    {
+      "k": 100,
+      "block_bytes": 60647,
+      "per_hash_us": 336.335,
+      "hashrate_kH_s": 2.97,
+      "expected_block_s": 352.67,
+      "relative_per_hash": 50.26
+    }
+  ],
+  "operations": {
+    "issue": {
+      "mean_s": 0.01868,
+      "min_s": 0.01749,
+      "max_s": 0.02291,
+      "n": 5
+    },
+    "blind_sign": {
+      "mean_s": 0.05745,
+      "min_s": 0.05459,
+      "max_s": 0.06138,
+      "n": 5
+    },
+    "cast": {
+      "mean_s": 0.0173,
+      "min_s": 0.01602,
+      "max_s": 0.01892,
+      "n": 5
+    }
+  },
+  "batch_scale": [
+    {
+      "block_time_s": 1.1194128129999967,
+      "sync_confirm_s": 0.009697404999997161,
+      "synced": true,
+      "server_mining_s": 1.032461,
+      "local_message": "New vote block mined",
+      "total_txs": 1,
+      "peer_accepts": 2,
+      "k": 1,
+      "run": 1
+    },
+    {
+      "block_time_s": 4.489770401000044,
+      "sync_confirm_s": 0.009660859000007349,
+      "synced": true,
+      "server_mining_s": 4.402026,
+      "local_message": "New vote block mined",
+      "total_txs": 1,
+      "peer_accepts": 2,
+      "k": 1,
+      "run": 2
+    },
+    {
+      "block_time_s": 7.753572109000004,
+      "sync_confirm_s": 0.010261751000030017,
+      "synced": true,
+      "server_mining_s": null,
+      "local_message": "mining_stopped",
+      "total_txs": 1,
+      "peer_accepts": 2,
+      "k": 1,
+      "run": 3
+    },
+    {
+      "block_time_s": 15.630079465999984,
+      "sync_confirm_s": 0.010969838000050913,
+      "synced": true,
+      "server_mining_s": null,
+      "local_message": "mining_stopped",
+      "total_txs": 1,
+      "peer_accepts": 2,
+      "k": 1,
+      "run": 4
+    },
+    {
+      "block_time_s": 0.7981890870000825,
+      "sync_confirm_s": 0.009763741999904596,
+      "synced": true,
+      "server_mining_s": 0.693547,
+      "local_message": "New vote block mined",
+      "total_txs": 1,
+      "peer_accepts": 2,
+      "k": 1,
+      "run": 5
+    },
+    {
+      "block_time_s": 2.189356979999957,
+      "sync_confirm_s": 0.009699967000074139,
+      "synced": true,
+      "server_mining_s": 2.092489,
+      "local_message": "New vote block mined",
+      "total_txs": 2,
+      "peer_accepts": 2,
+      "k": 2,
+      "run": 1
+    },
+    {
+      "block_time_s": 2.3356921820000025,
+      "sync_confirm_s": 0.01055198099993504,
+      "synced": true,
+      "server_mining_s": null,
+      "local_message": "mining_stopped",
+      "total_txs": 2,
+      "peer_accepts": 2,
+      "k": 2,
+      "run": 2
+    },
+    {
+      "block_time_s": 4.843839845000048,
+      "sync_confirm_s": 0.010189194999952633,
+      "synced": true,
+      "server_mining_s": null,
+      "local_message": "mining_stopped",
+      "total_txs": 2,
+      "peer_accepts": 2,
+      "k": 2,
+      "run": 3
+    },
+    {
+      "block_time_s": 3.8090648090001196,
+      "sync_confirm_s": 0.01087548999998944,
+      "synced": true,
+      "server_mining_s": null,
+      "local_message": "mining_stopped",
+      "total_txs": 2,
+      "peer_accepts": 2,
+      "k": 2,
+      "run": 4
+    },
+    {
+      "block_time_s": 0.9742968079999628,
+      "sync_confirm_s": 0.010434011999905124,
+      "synced": true,
+      "server_mining_s": null,
+      "local_message": "mining_stopped",
+      "total_txs": 2,
+      "peer_accepts": 2,
+      "k": 2,
+      "run": 5
+    },
+    {
+      "block_time_s": 4.056911754000112,
+      "sync_confirm_s": 0.010150263000014093,
+      "synced": true,
+      "server_mining_s": 4.038788,
+      "local_message": "New vote block mined",
+      "total_txs": 5,
+      "peer_accepts": 2,
+      "k": 5,
+      "run": 1
+    },
+    {
+      "block_time_s": 12.931817713999862,
+      "sync_confirm_s": 0.010153789000014513,
+      "synced": true,
+      "server_mining_s": 12.917337,
+      "local_message": "New vote block mined",
+      "total_txs": 5,
+      "peer_accepts": 2,
+      "k": 5,
+      "run": 2
+    },
+    {
+      "block_time_s": 10.721522929999992,
+      "sync_confirm_s": 0.010308786999985387,
+      "synced": true,
+      "server_mining_s": 10.706451,
+      "local_message": "New vote block mined",
+      "total_txs": 5,
+      "peer_accepts": 2,
+      "k": 5,
+      "run": 3
+    },
+    {
+      "block_time_s": 15.533890896000003,
+      "sync_confirm_s": 0.011309093000136272,
+      "synced": true,
+      "server_mining_s": null,
+      "local_message": "mining_stopped",
+      "total_txs": 5,
+      "peer_accepts": 2,
+      "k": 5,
+      "run": 4
+    },
+    {
+      "block_time_s": 9.158480761999954,
+      "sync_confirm_s": 0.011064215000033073,
+      "synced": true,
+      "server_mining_s": null,
+      "local_message": "mining_stopped",
+      "total_txs": 5,
+      "peer_accepts": 2,
+      "k": 5,
+      "run": 5
+    },
+    {
+      "block_time_s": 16.59068819999993,
+      "sync_confirm_s": 0.012203611999893837,
+      "synced": true,
+      "server_mining_s": null,
+      "local_message": "mining_stopped",
+      "total_txs": 10,
+      "peer_accepts": 2,
+      "k": 10,
+      "run": 1
+    },
+    {
+      "block_time_s": 3.1194735210001454,
+      "sync_confirm_s": 0.012717076999933852,
+      "synced": true,
+      "server_mining_s": null,
+      "local_message": "mining_stopped",
+      "total_txs": 10,
+      "peer_accepts": 2,
+      "k": 10,
+      "run": 2
+    },
+    {
+      "block_time_s": 17.466996893999976,
+      "sync_confirm_s": 0.012741637999852173,
+      "synced": true,
+      "server_mining_s": 17.451485,
+      "local_message": "New vote block mined",
+      "total_txs": 10,
+      "peer_accepts": 2,
+      "k": 10,
+      "run": 3
+    },
+    {
+      "block_time_s": 12.484566889999769,
+      "sync_confirm_s": 0.01336216699974102,
+      "synced": true,
+      "server_mining_s": null,
+      "local_message": "mining_stopped",
+      "total_txs": 10,
+      "peer_accepts": 2,
+      "k": 10,
+      "run": 4
+    },
+    {
+      "block_time_s": 4.354605311999876,
+      "sync_confirm_s": 0.012124893999953201,
+      "synced": true,
+      "server_mining_s": 4.337952,
+      "local_message": "New vote block mined",
+      "total_txs": 10,
+      "peer_accepts": 2,
+      "k": 10,
+      "run": 5
+    },
+    {
+      "block_time_s": 10.4323904820003,
+      "sync_confirm_s": 0.01425942700006999,
+      "synced": true,
+      "server_mining_s": null,
+      "local_message": "mining_stopped",
+      "total_txs": 20,
+      "peer_accepts": 2,
+      "k": 20,
+      "run": 1
+    },
+    {
+      "block_time_s": 16.89014854099969,
+      "sync_confirm_s": 0.016130689999954484,
+      "synced": true,
+      "server_mining_s": null,
+      "local_message": "mining_stopped",
+      "total_txs": 20,
+      "peer_accepts": 2,
+      "k": 20,
+      "run": 2
+    },
+    {
+      "block_time_s": 0.26281425000024683,
+      "sync_confirm_s": 0.016320277999966493,
+      "synced": true,
+      "server_mining_s": null,
+      "local_message": "mining_stopped",
+      "total_txs": 20,
+      "peer_accepts": 2,
+      "k": 20,
+      "run": 3
+    },
+    {
+      "block_time_s": 11.73272520899991,
+      "sync_confirm_s": 0.014965900999868609,
+      "synced": true,
+      "server_mining_s": 11.714689,
+      "local_message": "New vote block mined",
+      "total_txs": 20,
+      "peer_accepts": 2,
+      "k": 20,
+      "run": 4
+    },
+    {
+      "block_time_s": 110.67096450600002,
+      "sync_confirm_s": 0.039831367999795475,
+      "synced": true,
+      "server_mining_s": 110.651537,
+      "local_message": "New vote block mined",
+      "total_txs": 20,
+      "peer_accepts": 2,
+      "k": 20,
+      "run": 5
+    },
+    {
+      "block_time_s": 20.325195919999715,
+      "sync_confirm_s": 0.02279469799987055,
+      "synced": true,
+      "server_mining_s": 20.301393,
+      "local_message": "New vote block mined",
+      "total_txs": 50,
+      "peer_accepts": 2,
+      "k": 50,
+      "run": 1
+    },
+    {
+      "block_time_s": 30.198913607999657,
+      "sync_confirm_s": 0.02123033399993801,
+      "synced": true,
+      "server_mining_s": 30.170157,
+      "local_message": "New vote block mined",
+      "total_txs": 50,
+      "peer_accepts": 2,
+      "k": 50,
+      "run": 2
+    },
+    {
+      "block_time_s": 219.91857560900007,
+      "sync_confirm_s": 0.0563570310000614,
+      "synced": true,
+      "server_mining_s": null,
+      "local_message": "mining_stopped",
+      "total_txs": 50,
+      "peer_accepts": 2,
+      "k": 50,
+      "run": 3
+    },
+    {
+      "block_time_s": 60.12842282199972,
+      "sync_confirm_s": 0.06679401300016252,
+      "synced": true,
+      "server_mining_s": null,
+      "local_message": "mining_stopped",
+      "total_txs": 50,
+      "peer_accepts": 2,
+      "k": 50,
+      "run": 4
+    },
+    {
+      "block_time_s": 14.200193325999862,
+      "sync_confirm_s": 0.029716498000198044,
+      "synced": true,
+      "server_mining_s": 14.187483,
+      "local_message": "New vote block mined",
+      "total_txs": 50,
+      "peer_accepts": 2,
+      "k": 50,
+      "run": 5
+    }
+  ],
+  "summary": {
+    "block_time_by_k": {
+      "1": {
+        "mean_s": 5.958,
+        "min_s": 0.798,
+        "max_s": 15.63,
+        "n": 5,
+        "votes_per_s": 0.1678,
+        "sync_confirm_mean_s": 0.0101
+      },
+      "2": {
+        "mean_s": 2.83,
+        "min_s": 0.974,
+        "max_s": 4.844,
+        "n": 5,
+        "votes_per_s": 0.7066,
+        "sync_confirm_mean_s": 0.0104
+      },
+      "5": {
+        "mean_s": 10.481,
+        "min_s": 4.057,
+        "max_s": 15.534,
+        "n": 5,
+        "votes_per_s": 0.4771,
+        "sync_confirm_mean_s": 0.0106
+      },
+      "10": {
+        "mean_s": 10.803,
+        "min_s": 3.119,
+        "max_s": 17.467,
+        "n": 5,
+        "votes_per_s": 0.9256,
+        "sync_confirm_mean_s": 0.0126
+      },
+      "20": {
+        "mean_s": 29.998,
+        "min_s": 0.263,
+        "max_s": 110.671,
+        "n": 5,
+        "votes_per_s": 0.6667,
+        "sync_confirm_mean_s": 0.0203
+      },
+      "50": {
+        "mean_s": 68.954,
+        "min_s": 14.2,
+        "max_s": 219.919,
+        "n": 5,
+        "votes_per_s": 0.7251,
+        "sync_confirm_mean_s": 0.0394
+      }
+    }
+  }
+}

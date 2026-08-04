@@ -4,8 +4,8 @@ import VoterView from "./VoterView";
 import AdminLogin from "./AdminLogin";
 import TransparencyView from "./TransparencyView";
 
-const MODE_STORAGE_KEY = "truevote.mode";
-const ADMIN_TOKEN_STORAGE_KEY = "truevote.adminToken";
+const MODE_STORAGE_KEY = "BallotChain.mode";
+const ADMIN_TOKEN_STORAGE_KEY = "BallotChain.adminToken";
 
 function readStoredValue(key, fallback = "") {
   if (typeof window === "undefined") {
@@ -48,7 +48,7 @@ export default function App() {
   const renderTopBar = (title, subtitle) => (
     <header className="flex items-center justify-between gap-4 py-1 pb-3">
       <div>
-        <p className="text-xs font-bold uppercase tracking-widest text-blue-600 m-0">TrueVote</p>
+        <p className="text-xs font-bold uppercase tracking-widest text-blue-600 m-0">BallotChain</p>
         <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 mt-0.5 m-0">{title}</h1>
         <p className="text-sm text-slate-500 mt-0.5 m-0 max-w-prose">{subtitle}</p>
       </div>
@@ -96,7 +96,7 @@ export default function App() {
         <div className="mx-auto max-w-7xl flex flex-col gap-4">
           <header className="flex items-center justify-between gap-4">
             <div>
-              <p className="text-xs font-bold uppercase tracking-widest text-blue-600 m-0">TrueVote</p>
+              <p className="text-xs font-bold uppercase tracking-widest text-blue-600 m-0">BallotChain</p>
               <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 mt-0.5 m-0">Transparency Console</h1>
             </div>
             <button className="rounded-full px-4 py-2 text-sm bg-white/80 border border-slate-200/80 text-slate-700 hover:bg-white transition-colors shrink-0" onClick={() => setMode("select")}>Back to hub</button>
@@ -112,7 +112,7 @@ export default function App() {
       <div className="mx-auto max-w-7xl px-6 lg:px-8">
         <header className="flex items-center justify-between py-4">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">TrueVote</h1>
+            <h1 className="text-2xl font-bold tracking-tight">BallotChain</h1>
             <p className="text-sm text-slate-500">Blockchain voting demo</p>
           </div>
           <nav className="flex gap-2">
